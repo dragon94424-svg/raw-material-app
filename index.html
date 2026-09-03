@@ -144,15 +144,17 @@
 <header>
   <div class="title-row">
     <h1>원료 입고 인식기</h1>
-    <span class="ver-badge" onclick="toggleChangelog()">v3.8 ▾</span>
+    <span class="ver-badge" onclick="toggleChangelog()">v4.0 ▾</span>
   </div>
   <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
   <div id="changelog">
+    v4.0 (2026-08-10)<br>
+    · [중요] 구글시트 직접 연동 추가 — 설정에 웹앱 주소를 넣으면 공유창/다운로드 없이 서버가 직접 시트에 저장 (휴대폰 공유 기능 제약과 무관하게 항상 동작)<br>
+    · 설정에 "연결 테스트" 버튼 추가<br>
     v3.8 (2026-08-10)<br>
-    · 공유창이 안 뜨고 다운로드로 넘어갈 때 정확한 원인(canShare false / 취소 / 오류)을 화면에 표시<br>
-    · "📤 다시 공유하기" 버튼 추가 — 자동 시도가 실패해도 새로 탭해서 재시도 가능<br>
+    · 공유 실패 원인 표시, "다시 공유하기" 버튼 추가<br>
     v3.7 (2026-08-10)<br>
-    · API 키 입력칸에 "사진에서 키 인식" 추가, 표시/숨김 토글<br>
+    · API 키 사진 인식, 표시/숨김 토글<br>
     v3.6 (2026-08-10)<br>
     · [중요] QR 인식 라이브러리 주소 오류 수정<br>
     v3.5~v3.0 (2026-08-10)<br>
@@ -205,6 +207,17 @@
       <label>추가 원료 (마스터DB에 없는 것만, 한 줄에 하나씩)</label>
       <textarea id="s_masterlist" rows="3" placeholder="마스터DB에 없는 원료명을 여기 추가하세요" style="width:100%; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:10px 11px; color:var(--text); font-size:13px; font-family:var(--mono); resize:vertical;"></textarea>
     </div>
+    <div class="field" style="background:var(--panel-2); border-radius:8px; padding:10px 12px; border:1px solid var(--border);">
+      <label>구글시트 저장 주소 (선택사항 · 설정하면 공유창 없이 서버로 바로 저장됩니다)</label>
+      <input id="s_sheeturl" placeholder="https://script.google.com/macros/s/.../exec">
+      <div style="display:flex; gap:8px; margin-top:6px;">
+        <button class="btn btn-ghost" style="flex:1; font-size:12px; padding:6px 10px;" onclick="testSheetConnection()">연결 테스트</button>
+      </div>
+      <div id="sheetTestStatus" style="font-size:11.5px; margin-top:6px; font-family:var(--mono); display:none;"></div>
+      <div style="font-size:11px; color:var(--muted); margin-top:8px; font-family:var(--mono);">
+        이 주소가 설정되어 있으면 "엑셀로 내보내기"를 눌러도 파일 공유/다운로드 없이 곧바로 이 구글시트에 행이 추가됩니다. 비워두면 기존처럼 파일로 내보냅니다.
+      </div>
+    </div>
     <div class="field" id="folderConnectField" style="display:none;">
       <label>엑셀 저장 폴더 (PC 전용 · OneDrive 동기화 폴더 등)</label>
       <div style="display:flex; gap:8px; align-items:center;">
@@ -212,7 +225,7 @@
         <span id="folderStatus" style="font-size:11.5px; color:var(--muted); font-family:var(--mono);">연결 안 됨</span>
       </div>
       <div style="font-size:11px; color:var(--muted); margin-top:6px; font-family:var(--mono);">
-        연결해두면 내보내기가 팝업 없이 마스터_입고대장.xlsx에 바로 이어붙습니다.
+        연결해두면 내보내기가 팝업 없이 마스터_입고대장.xlsx에 바로 이어붙습니다. (구글시트 주소가 설정되어 있으면 그쪽이 우선 사용됩니다.)
       </div>
       <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="mergeBatchFiles()">🔀 폴더의 배치 파일 전체 병합</button>
     </div>
@@ -407,9 +420,19 @@ function updateFolderStatus(){
   if(!el) return;
   el.textContent = dirHandle ? ('✓ 연결됨: ' + dirHandle.name) : '연결 안 됨';
   el.style.color = dirHandle ? 'var(--teal)' : 'var(--muted)';
+  updateExportHint();
+}
+
+function updateExportHint(){
   const hint = document.getElementById('exportHint');
-  if(hint && dirHandle){
+  if(!hint) return;
+  const sheetUrl = localStorage.getItem('rawmat_sheet_url') || '';
+  if(sheetUrl){
+    hint.textContent = '구글시트로 바로 저장됩니다 (공유창 필요 없음)';
+  }else if(dirHandle){
     hint.textContent = '마스터_입고대장.xlsx(' + dirHandle.name + ')에 바로 이어붙습니다';
+  }else{
+    hint.textContent = '휴대폰에서는 공유창(카톡/OneDrive/이메일)으로 바로 전송됩니다';
   }
 }
 
@@ -437,9 +460,11 @@ function loadSettings(){
   const key = localStorage.getItem('rawmat_api_key') || '';
   const model = localStorage.getItem('rawmat_model') || 'claude-sonnet-5';
   const master = localStorage.getItem('rawmat_master_list') || '';
+  const sheetUrl = localStorage.getItem('rawmat_sheet_url') || '';
   document.getElementById('s_apikey').value = key;
   document.getElementById('s_model').value = model;
   document.getElementById('s_masterlist').value = master;
+  document.getElementById('s_sheeturl').value = sheetUrl;
   updateKeyStatusBadge();
 }
 
@@ -447,9 +472,54 @@ function saveSettings(){
   localStorage.setItem('rawmat_api_key', document.getElementById('s_apikey').value.trim());
   localStorage.setItem('rawmat_model', document.getElementById('s_model').value);
   localStorage.setItem('rawmat_master_list', document.getElementById('s_masterlist').value);
+  localStorage.setItem('rawmat_sheet_url', document.getElementById('s_sheeturl').value.trim());
   updateKeyStatusBadge();
   toggleSettings();
   setStatus('설정을 저장했습니다.');
+  updateExportHint();
+}
+
+async function testSheetConnection(){
+  const url = document.getElementById('s_sheeturl').value.trim();
+  const statusEl = document.getElementById('sheetTestStatus');
+  statusEl.style.display = 'block';
+  if(!url){
+    statusEl.style.color = 'var(--amber)';
+    statusEl.textContent = '먼저 주소를 입력해주세요.';
+    return;
+  }
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = '연결 확인 중...';
+  try{
+    const res = await fetch(url, {method:'GET'});
+    const data = await res.json();
+    if(data.ok){
+      statusEl.style.color = 'var(--teal)';
+      statusEl.textContent = '✓ 연결 성공: ' + (data.message || 'OK');
+    }else{
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '응답은 왔지만 오류: ' + (data.error || JSON.stringify(data));
+    }
+  }catch(err){
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '연결 실패: ' + err.message + ' — 주소가 정확한지, 배포 시 접근권한을 Anyone으로 했는지 확인해주세요.';
+  }
+}
+
+async function saveItemsToGoogleSheet(items){
+  const url = localStorage.getItem('rawmat_sheet_url') || '';
+  if(!url) return {ok:false, reason:'NO_URL'};
+  try{
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'text/plain;charset=utf-8'}, // Apps Script CORS preflight 회피
+      body: JSON.stringify({items: items})
+    });
+    const data = await res.json();
+    return data.ok ? {ok:true, added: data.added} : {ok:false, reason: data.error || '알 수 없는 오류'};
+  }catch(err){
+    return {ok:false, reason: err.message};
+  }
 }
 
 function updateKeyStatusBadge(){
@@ -992,6 +1062,7 @@ function resetScan(){
 window.addEventListener('DOMContentLoaded', ()=>{
   loadSettings();
   restoreFolderHandle();
+  updateExportHint();
   if(supportsFolderConnect){
     document.getElementById('folderConnectField').style.display = 'block';
   }
@@ -1149,6 +1220,26 @@ async function retryShareLastExport(){
 async function exportExcel(){
   if(items.length === 0) return;
   const newRows = rowsFromItems(items);
+
+  // ── 0순위: 구글시트 주소가 설정되어 있으면 서버로 직접 저장 (공유/다운로드 불필요) ──
+  const sheetUrl = localStorage.getItem('rawmat_sheet_url') || '';
+  if(sheetUrl){
+    setStatus('구글시트로 전송 중...');
+    const result = await saveItemsToGoogleSheet(items);
+    if(result.ok){
+      setStatus(`✓ 구글시트에 ${result.added}건 저장했습니다.`);
+      setTimeout(()=>{
+        if(confirm('저장 완료. 다음 배치를 위해 이 화면의 목록을 비울까요?')){
+          items = [];
+          renderList();
+        }
+      }, 300);
+      return;
+    }else{
+      setStatus('구글시트 저장 실패 (' + result.reason + ') — 아래 방법으로 대체합니다.', true);
+      // 실패 시 아래의 기존 방식(폴더/공유/다운로드)으로 계속 진행
+    }
+  }
 
   // ── PC + 폴더 연결됨: 마스터 파일에 바로 이어붙이기 ──
   if(dirHandle){
