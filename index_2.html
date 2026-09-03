@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>원료 입고 인식기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+  :root{
+    --bg:#12151a;
+    --panel:#1b2027;
+    --panel-2:#20262e;
+    --border:#2a3038;
+    --text:#e7ebee;
+    --muted:#8993a1;
+    --teal:#45d6c4;
+    --teal-dim:#2b7d72;
+    --amber:#f2a94e;
+    --red:#e2645f;
+    --mono:'JetBrains Mono', ui-monospace, monospace;
+    --disp:'Space Grotesk', -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--disp);
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:96px;
+  }
+  header{
+    padding:20px 18px 14px;
+    border-bottom:1px solid var(--border);
+    position:sticky; top:0; z-index:20;
+    background:rgba(18,21,26,0.94);
+    backdrop-filter:blur(6px);
+  }
+  .title-row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  h1{font-size:18px; margin:0; font-weight:700; letter-spacing:-0.01em;}
+  .ver-badge{
+    font-family:var(--mono); font-size:11px; color:var(--teal);
+    border:1px solid var(--teal-dim); background:rgba(69,214,196,0.08);
+    padding:3px 8px; border-radius:20px; cursor:pointer; white-space:nowrap;
+  }
+  .sub{font-size:12.5px; color:var(--muted); margin-top:4px;}
+  #changelog{
+    display:none; margin-top:10px; padding:10px 12px; background:var(--panel-2);
+    border:1px solid var(--border); border-radius:8px; font-size:12px; color:var(--muted);
+    font-family:var(--mono); line-height:1.6;
+  }
+  #changelog.open{display:block;}
+  main{padding:16px; max-width:640px; margin:0 auto;}
+
+  .scan-zone{
+    position:relative;
+    border:1px dashed var(--border);
+    border-radius:14px;
+    background:var(--panel);
+    padding:26px 16px;
+    text-align:center;
+    margin-bottom:14px;
+    overflow:hidden;
+  }
+  .scan-zone.has-img{padding:0; border-style:solid;}
+  .scan-zone img{width:100%; display:block; max-height:320px; object-fit:cover;}
+  .corner{position:absolute; width:18px; height:18px; border-color:var(--teal); opacity:0.7;}
+  .c-tl{top:8px; left:8px; border-top:2px solid; border-left:2px solid;}
+  .c-tr{top:8px; right:8px; border-top:2px solid; border-right:2px solid;}
+  .c-bl{bottom:8px; left:8px; border-bottom:2px solid; border-left:2px solid;}
+  .c-br{bottom:8px; right:8px; border-bottom:2px solid; border-right:2px solid;}
+  .scanline{
+    position:absolute; left:0; right:0; height:2px; background:var(--teal);
+    box-shadow:0 0 8px var(--teal); animation:scan 1.4s linear infinite; display:none;
+  }
+  .scan-zone.scanning .scanline{display:block;}
+  @keyframes scan{0%{top:6%;} 50%{top:92%;} 100%{top:6%;}}
+
+  .scan-icon{font-size:34px; margin-bottom:8px;}
+  .scan-label{font-size:14px; color:var(--muted); margin-bottom:14px;}
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    border:none; border-radius:10px; font-family:var(--disp); font-weight:600;
+    font-size:14.5px; padding:12px 18px; cursor:pointer; transition:opacity .15s;
+  }
+  .btn:active{opacity:0.75;}
+  .btn-primary{background:var(--teal); color:#0d1512;}
+  .btn-ghost{background:transparent; color:var(--muted); border:1px solid var(--border);}
+  .btn-block{width:100%;}
+  .btn:disabled{opacity:0.4; pointer-events:none;}
+
+  .status-line{font-family:var(--mono); font-size:12px; color:var(--teal); margin:8px 0 4px; min-height:16px;}
+  .status-line.err{color:var(--red);}
+
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:16px; margin-bottom:14px;
+  }
+  .card h3{font-size:12px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin:0 0 12px; font-weight:600;}
+  .field{margin-bottom:10px;}
+  .field label{display:block; font-size:11.5px; color:var(--muted); margin-bottom:4px; font-family:var(--mono);}
+  .field input{
+    width:100%; background:var(--panel-2); border:1px solid var(--border); border-radius:8px;
+    padding:10px 11px; color:var(--text); font-size:14px; font-family:var(--mono);
+  }
+  .field input:focus{outline:none; border-color:var(--teal);}
+  .field-row{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .actions-row{display:flex; gap:10px; margin-top:14px;}
+
+  .list-head{display:flex; align-items:baseline; justify-content:space-between; margin:22px 0 10px;}
+  .list-head h2{font-size:14px; margin:0; color:var(--muted); font-weight:600; letter-spacing:0.02em;}
+  .count-pill{font-family:var(--mono); font-size:11px; color:var(--teal);}
+
+  .item{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:12px 14px; margin-bottom:8px; display:flex; justify-content:space-between; gap:10px;
+  }
+  .item-main{flex:1; min-width:0;}
+  .item-name{font-weight:600; font-size:14.5px; margin-bottom:3px;}
+  .item-meta{font-family:var(--mono); font-size:11.5px; color:var(--muted); line-height:1.7;}
+  .item-meta b{color:var(--text); font-weight:500;}
+  .del-btn{
+    background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer;
+    padding:0 4px; align-self:flex-start;
+  }
+  .empty-hint{color:var(--muted); font-size:13px; text-align:center; padding:24px 0; font-family:var(--mono);}
+
+  .footer-bar{
+    position:fixed; bottom:0; left:0; right:0; padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+    background:linear-gradient(180deg, rgba(18,21,26,0) 0%, rgba(18,21,26,0.97) 30%);
+    z-index:15;
+  }
+  .footer-inner{max-width:640px; margin:0 auto;}
+
+  input[type=file]{display:none;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-row">
+    <h1>원료 입고 인식기</h1>
+    <span class="ver-badge" onclick="toggleChangelog()">v3.8 ▾</span>
+  </div>
+  <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
+  <div id="changelog">
+    v3.8 (2026-08-10)<br>
+    · 공유창이 안 뜨고 다운로드로 넘어갈 때 정확한 원인(canShare false / 취소 / 오류)을 화면에 표시<br>
+    · "📤 다시 공유하기" 버튼 추가 — 자동 시도가 실패해도 새로 탭해서 재시도 가능<br>
+    v3.7 (2026-08-10)<br>
+    · API 키 입력칸에 "사진에서 키 인식" 추가, 표시/숨김 토글<br>
+    v3.6 (2026-08-10)<br>
+    · [중요] QR 인식 라이브러리 주소 오류 수정<br>
+    v3.5~v3.0 (2026-08-10)<br>
+    · QR 설정 이전, 이미지 화질 개선, 갤러리 선택, 마스터DB 내장 등<br>
+    v2.3~v1.0 (2026-08-10)<br>
+    · 마스터 파일 누적, PC 폴더 연결, 회전 보정, API 키 방식 전환 등 초기 반복
+  </div>
+  <div id="settingsBar" style="margin-top:10px;">
+    <button class="btn btn-ghost" style="padding:6px 12px; font-size:12.5px;" onclick="toggleSettings()">⚙ 설정 (API 키 / 원료DB)</button>
+    <span id="keyStatusBadge" style="font-family:var(--mono); font-size:11px; margin-left:8px; color:var(--muted);"></span>
+  </div>
+  <div id="settingsPanel" class="card" style="display:none; margin-top:10px; margin-bottom:0;">
+    <h3>설정</h3>
+    <div class="field">
+      <label>Anthropic API 키 (console.anthropic.com 에서 발급)</label>
+      <input id="s_apikey" type="password" placeholder="sk-ant-...">
+      <div style="display:flex; gap:8px; margin-top:6px;">
+        <button class="btn btn-ghost" style="flex:1; font-size:12px; padding:6px 10px;" onclick="document.getElementById('keyScanInput').click()">📷 사진에서 키 인식</button>
+        <button class="btn btn-ghost" style="font-size:12px; padding:6px 10px;" onclick="toggleKeyVisibility()" id="keyEyeBtn">👁</button>
+      </div>
+      <input type="file" id="keyScanInput" accept="image/*" style="display:none;">
+      <div id="keyScanStatus" style="font-size:11.5px; margin-top:6px; font-family:var(--mono); display:none;"></div>
+    </div>
+    <div class="field" style="background:var(--panel-2); border-radius:8px; padding:10px 12px; border:1px solid var(--border);">
+      <div style="font-size:11.5px; color:var(--muted); margin-bottom:8px; font-family:var(--mono);">다른 기기로 설정 옮기기 (키가 QR에 그대로 담기니 스캔 후 바로 닫아주세요)</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost" style="flex:1;" onclick="showExportQR()">📤 QR로 내보내기</button>
+        <button class="btn btn-ghost" style="flex:1;" onclick="document.getElementById('qrScanInput').click()">📷 QR 사진으로 가져오기</button>
+      </div>
+      <input type="file" id="qrScanInput" accept="image/*" style="display:none;">
+      <div id="qrExportBox" style="display:none; margin-top:12px; text-align:center;">
+        <div id="qrCanvasHolder" style="display:inline-block; background:#fff; padding:10px; border-radius:8px;"></div>
+        <div style="margin-top:8px;">
+          <button class="btn btn-ghost" style="font-size:12px; padding:6px 10px;" onclick="hideExportQR()">닫기</button>
+        </div>
+      </div>
+      <div id="qrScanStatus" style="font-size:11.5px; margin-top:8px; font-family:var(--mono); display:none;"></div>
+    </div>
+    <div class="field">
+      <label>모델</label>
+      <select id="s_model" style="width:100%; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:10px 11px; color:var(--text); font-size:14px; font-family:var(--mono);">
+        <option value="claude-sonnet-5">claude-sonnet-5 (정확도 우선, 권장)</option>
+        <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 (저비용/속도 우선)</option>
+      </select>
+    </div>
+    <div class="field" style="background:var(--panel-2); border-radius:8px; padding:10px 12px; border:1px solid var(--border);">
+      <div style="font-size:12.5px; color:var(--teal); font-family:var(--mono);">✓ 원료 마스터DB 내장됨: 아로마리소스 품목등록 (1,290건)</div>
+    </div>
+    <div class="field">
+      <label>추가 원료 (마스터DB에 없는 것만, 한 줄에 하나씩)</label>
+      <textarea id="s_masterlist" rows="3" placeholder="마스터DB에 없는 원료명을 여기 추가하세요" style="width:100%; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:10px 11px; color:var(--text); font-size:13px; font-family:var(--mono); resize:vertical;"></textarea>
+    </div>
+    <div class="field" id="folderConnectField" style="display:none;">
+      <label>엑셀 저장 폴더 (PC 전용 · OneDrive 동기화 폴더 등)</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="btn btn-ghost" style="flex:1;" onclick="connectFolder()">📁 폴더 연결</button>
+        <span id="folderStatus" style="font-size:11.5px; color:var(--muted); font-family:var(--mono);">연결 안 됨</span>
+      </div>
+      <div style="font-size:11px; color:var(--muted); margin-top:6px; font-family:var(--mono);">
+        연결해두면 내보내기가 팝업 없이 마스터_입고대장.xlsx에 바로 이어붙습니다.
+      </div>
+      <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="mergeBatchFiles()">🔀 폴더의 배치 파일 전체 병합</button>
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-primary btn-block" onclick="saveSettings()">저장</button>
+    </div>
+    <div style="font-size:11px; color:var(--muted); margin-top:10px; font-family:var(--mono); line-height:1.6;">
+      · 이 정보는 이 기기의 브라우저에만 저장되며 외부로 전송되지 않습니다(인식 호출 시 Anthropic 서버로만 직접 전송).<br>
+      · 마스터 리스트를 등록하면, 인식 결과가 목록의 항목과 비슷하면 자동으로 정식 명칭으로 맞춰줍니다.
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <div class="scan-zone" id="scanZone">
+    <div class="corner c-tl"></div><div class="corner c-tr"></div>
+    <div class="corner c-bl"></div><div class="corner c-br"></div>
+    <div class="scanline"></div>
+    <div id="rotateBar" style="display:none; position:absolute; bottom:8px; left:50%; transform:translateX(-50%); z-index:5; gap:8px;">
+      <button class="btn btn-ghost" style="padding:6px 10px; font-size:16px; background:rgba(18,21,26,0.75);" onclick="rotateImage(-90)">⟲</button>
+      <button class="btn btn-ghost" style="padding:6px 10px; font-size:16px; background:rgba(18,21,26,0.75);" onclick="rotateImage(90)">⟳</button>
+    </div>
+    <div id="scanEmpty">
+      <div class="scan-icon">📷</div>
+      <div class="scan-label">원료 라벨을 촬영하거나<br>사진에서 선택하면 자동으로 정보를 읽어옵니다</div>
+      <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">📷 라벨 촬영</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('galleryInput').click()">🖼 사진에서 선택</button>
+      </div>
+    </div>
+    <img id="previewImg" style="display:none;">
+    <div id="queueBadge" style="display:none; position:absolute; top:8px; right:8px; z-index:5; background:rgba(18,21,26,0.8); color:var(--teal); font-family:var(--mono); font-size:11px; padding:4px 9px; border-radius:20px;"></div>
+  </div>
+  <input type="file" id="fileInput" accept="image/*" capture="environment">
+  <input type="file" id="galleryInput" accept="image/*" multiple>
+
+  <div class="status-line" id="statusLine"></div>
+
+  <div class="card" id="resultCard" style="display:none;">
+    <h3>인식 결과 (확인 후 수정 가능)</h3>
+    <div class="field">
+      <label>원료명</label>
+      <input id="f_name" placeholder="원료명">
+      <div id="matchHint" style="font-size:11.5px; color:var(--teal); margin-top:4px; font-family:var(--mono); display:none;"></div>
+      <div id="matchCandidates"></div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>품목코드</label>
+        <input id="f_code" placeholder="마스터DB 매칭 시 자동입력">
+      </div>
+      <div class="field">
+        <label>CAS No.</label>
+        <input id="f_cas" placeholder="라벨에 있으면">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>LOT 번호</label>
+        <input id="f_lot" placeholder="LOT">
+      </div>
+      <div class="field">
+        <label>제조사</label>
+        <input id="f_maker" placeholder="제조사">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>제조일자</label>
+        <input id="f_mfg" placeholder="YYYY-MM-DD">
+      </div>
+      <div class="field">
+        <label>유효기한</label>
+        <input id="f_exp" placeholder="YYYY-MM-DD">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>입고수량</label>
+        <input id="f_qty" placeholder="예: 20kg">
+      </div>
+      <div class="field">
+        <label>입고일</label>
+        <input id="f_recv" placeholder="YYYY-MM-DD">
+      </div>
+    </div>
+    <div class="field">
+      <label>비고</label>
+      <input id="f_note" placeholder="선택 입력">
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-ghost" style="flex:1" onclick="skipOrReset()" id="skipBtn">다시 촬영</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="runOCR(currentImageB64)">다시 인식</button>
+      <button class="btn btn-primary" style="flex:2" onclick="addToList()">목록에 추가</button>
+    </div>
+  </div>
+
+  <div class="list-head">
+    <h2>입고 목록</h2>
+    <span class="count-pill" id="countPill">0건</span>
+  </div>
+  <div id="listArea">
+    <div class="empty-hint">아직 추가된 항목이 없습니다</div>
+  </div>
+
+</main>
+
+<div class="footer-bar">
+  <div class="footer-inner">
+    <button class="btn btn-primary btn-block" id="exportBtn" onclick="exportExcel()" disabled>엑셀로 내보내기 (0건)</button>
+    <button class="btn btn-ghost btn-block" id="reshareBtn" onclick="retryShareLastExport()" style="display:none; margin-top:8px;">📤 다시 공유하기</button>
+    <div style="text-align:center; font-size:11px; color:var(--muted); margin-top:6px; font-family:var(--mono);" id="exportHint">
+      휴대폰에서는 공유창(카톡/OneDrive/이메일)으로 바로 전송됩니다
+    </div>
+  </div>
+</div>
+
+<script>
+let items = [];
+let currentImageB64 = null;
+
+const MASTER_DB = [{"code": "1-001", "name": "CITRONELLA OIL", "supplier": "CHINA", "cas": "8000-29-1"}, {"code": "1-002-T", "name": "PEPPERMINT OIL PIPERITA", "supplier": "TIEN YUAN", "cas": "8006-90-4"}, {"code": "1-003-T", "name": "PEPPERMINT OIL DMO(CORNMINT)", "supplier": "TIEN YUAN", "cas": "68917-18-0"}, {"code": "1-004", "name": "ANGELICA ROOT OIL FCC (EUROPEAN DISTILLED) [C8107]", "supplier": "C&A", "cas": "8015-64-3"}, {"code": "1-005-T", "name": "OIL BERGAMOT ITALIAN FCC [C2104EXT]", "supplier": "C&A", "cas": "8007-75-8"}, {"code": "1-006-T", "name": "OIL BUCHU SOUTH AFRICAN (NATURAL) [C2131]", "supplier": "C&A", "cas": "68650-46-4"}, {"code": "1-007", "name": "OIL EUCALYPTUS GLOBULUS 80/82％ FCC[C21141]", "supplier": "C&A", "cas": "8000-48-4"}, {"code": "1-008-T", "name": "OIL GRAPEFRUIT CALIFORNIA TYPE C.P. FCC (FROM PINK FRUIT) [C15029EXT]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-009", "name": "OIL GRAPEFRUIT ENHANCER, CITRASENSE NATURAL AND ARTIFICIAL ＃442 [C95972EXT]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-010-T", "name": "OIL GRAPEFRUIT FLORIDA CP FCC (FROM PINK FRUIT) [C14790]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-011-T", "name": "OIL LEMON ARGENTINA TUCUMAN C.P. FCC [C1503EXT]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-012", "name": "OIL LEMON CALIFORNIA TYPE C.P. EXTRA FCC [C150320YEXT]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-013-T", "name": "OIL LEMON ITALIAN SELECT FCC (WINTER CROP) [C150311EXT]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-014", "name": "LITSEA CUBEBA OIL CHINESE RECTIFIED 84/86％ [CA903812]", "supplier": "C&A", "cas": "68855-99-2"}, {"code": "1-015-T", "name": "OIL MANDARIN ITALIAN TYPE SELECT FCC [C1505EXT]", "supplier": "C&A", "cas": "8008-31-9"}, {"code": "1-016-T", "name": "OIL ORANGE(WILD SWEET) WEST INDIAN H.P FCC[C15097]", "supplier": "C&A", "cas": "8008-57-9"}, {"code": "1-017-T", "name": "ORANGE OIL BRAZIL [C150614]", "supplier": "C&A", "cas": "8008-57-9"}, {"code": "1-018-T", "name": "OIL ORANGE C.P. VALENCIA FCC [C15068EXT]", "supplier": "C&A", "cas": "8008-57-9"}, {"code": "1-019-T", "name": "OIL SWEET ORANGE TYPE CP FCC [C108626]", "supplier": "C&A", "cas": "8008-57-9"}, {"code": "1-020-T", "name": "OIL ORANGE TERPENELESS EXTRA [C150617EXT]", "supplier": "C&A", "cas": "68606-94-0 , 8008-57-9"}, {"code": "1-021", "name": "ORANGE OIL, SO-CALLED 10-FOLD [C1599EXT]", "supplier": "C&A", "cas": "0"}, {"code": "1-022-02-T", "name": "OIL SPEARMINT (FAR WEST) [SAMDE] S3510", "supplier": "SAMDE", "cas": "8008-79-5"}, {"code": "1-022-04-T", "name": "SPEARMINT OIL (S3510) PO2511-0138", "supplier": "SAMDE LAB081125A", "cas": ""}, {"code": "1-022-T", "name": "OIL SPEARMINT FAR WEST FCC (SCOTCH VARIETY)(MENTHA CARDIACE) [C3510]", "supplier": "C&A", "cas": "8008-79-5"}, {"code": "1-023", "name": "OIL STAR ANISE CHINESE FCC [C4101]", "supplier": "C&A", "cas": "8007-70-3"}, {"code": "1-024-T", "name": "OIL GRAPEFRUIT FLORIDA TYPE C.P. FCC (FROM WHITE FRUIT) [C14791] [1-504]", "supplier": "C&A [c-14791<--C15022]", "cas": "8016-20-4"}, {"code": "1-025-T", "name": "OIL ORANGE TERPENELESS #365 [C15136]", "supplier": "C&A", "cas": ""}, {"code": "1-026-T", "name": "OIL COGNAC FRENCH [C2111]", "supplier": "C&A", "cas": "8016-21-5"}, {"code": "1-027-T", "name": "OIL LIME DISTILLED MEXICAN TYPE WONF # 2520 [C112520EXT]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-028", "name": "LAVENDER OIL 40/42 SELECT FCC [C2158]", "supplier": "C&A", "cas": "8000-28-0"}, {"code": "1-029-T", "name": "OIL GRAPEFRUIT CALIFORNIA TYPE C.P. FCC (from WHITE FRUIT) [C1502]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-030-T", "name": "ORANGE OIL CALIFORNIA TYPE 5-FOLD [C15062]", "supplier": "C&A", "cas": "8028-48-6 , 8008-57-9"}, {"code": "1-031-01-T", "name": "PEPPERMINT OIL (Ex-Mentha Piperita) R1124 [SAMDE/RCB 대체]", "supplier": "SAMDE/RCB 50%대체", "cas": "8006-90-4"}, {"code": "1-031-02-T", "name": "PEPPERMINT OIL RCB (KTNG)", "supplier": "SAMDE AROMATIC PVT", "cas": ""}, {"code": "1-031-T", "name": "PEPPERMINT OIL RCB", "supplier": "HA-BC15864/RCB INTERNATIONAL", "cas": "8006-90-4"}, {"code": "1-032-T", "name": "OIL LIME DISTILLED WEST INDIAN FCC[C15041EXT]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-033-T", "name": "GRAPEFRUIT OIL FLORIDA TYPE 10-FOLD [C15026EXT]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-034-T", "name": "PEPPERMINT OIL #509 [C35509]", "supplier": "C&A", "cas": "84082-70-2 , 8006-90-4"}, {"code": "1-035", "name": "YUZU OIL PURE [C7517]", "supplier": "C&A", "cas": "233683-84-6"}, {"code": "1-036-T", "name": "OIL LIME DISTILLED MEXICAN [C150413]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-037", "name": "DILL CONCENTRATE NATURAL #11-07 TYPE (WATER SOLUBLE) [F82107]", "supplier": "TRILOGY", "cas": ""}, {"code": "1-038", "name": "CEDARWOOD OIL VIRIGINIANA PURE [C21088]", "supplier": "C&A", "cas": "8000-27-9"}, {"code": "1-038-01", "name": "CEDARWOOD OIL VIRGINIA", "supplier": "", "cas": "8000-27-9"}, {"code": "1-039-T", "name": "SPEARMINT OIL 80% 380009", "supplier": "TIEN YUAN", "cas": "8008-79-5"}, {"code": "1-040", "name": "BERGAMOT OIL RECONSTTTUTED,NATURAL AND ARTIFICIAL#545 (FURO COUMARIN REDUCED) [C25045]", "supplier": "C&A", "cas": "8007-75-8"}, {"code": "1-041", "name": "JUNIPER BERRY OIL FCC(EUROPEAN DISTILLIED)[C25571]", "supplier": "C&A", "cas": "8012-91-7"}, {"code": "1-042-02", "name": "OLD-LEMON CALIFORNIA 5-FOLD EXTRA[C15039]", "supplier": "C&A", "cas": ""}, {"code": "1-042-T", "name": "LEMON CALIFORNIA 5-FOLD EXTRA[C15039]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-043-T", "name": "Absolute Jasmin Indian [C6106I]", "supplier": "C&A", "cas": "8022-96-6"}, {"code": "1-044", "name": "OIL TANGERINE DANCY TYPE C.P. FCC [C1511]", "supplier": "C&A", "cas": "8016-85-1"}, {"code": "1-045-T", "name": "CORIANDER HERB OIL (CILANTRO) [C42333]", "supplier": "C&A", "cas": "8008-52-4"}, {"code": "1-046-T", "name": "OIL TEMPLE ORANGE FLORIDA C.P. FCC [C150634EXT]", "supplier": "C&A", "cas": "8028-48-6 , 8008-57-9"}, {"code": "1-047-T", "name": "OIL LIME MEXICAN FCC [150431EXT]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-048", "name": "PENNY ROYAL OIL", "supplier": "", "cas": "90064-00-9 ; 8013-99-8"}, {"code": "1-049", "name": "MELISSA OIL, NI", "supplier": "", "cas": "8014-71-9"}, {"code": "1-050-T", "name": "SPEARMINT OIL 80% (도터)", "supplier": "사용X->1-039사용", "cas": "8008-79-5"}, {"code": "1-051-01", "name": "DAVANA OIL(ARTEMISIA PALLENS) [C2113]", "supplier": "C&A", "cas": "8016-03-3"}, {"code": "1-051-T", "name": "DAVANA OIL", "supplier": "MOELLHAUSEN", "cas": "8016-03-3"}, {"code": "1-052", "name": "ARMOISE OIL, MOROCCO", "supplier": "", "cas": ""}, {"code": "1-065", "name": "CARROT SEED OIL HIGH CAROTEIN", "supplier": "LLUCH", "cas": "8015-88-1"}, {"code": "1-066", "name": "SPEARMINT RCB", "supplier": "RCB INTERNATIONAL", "cas": "8008-79-5"}, {"code": "1-067-T", "name": "PETITGRAIN PARAGUAI OIL", "supplier": "", "cas": "8014-17-3"}, {"code": "1-068-T", "name": "FRESH GINGER OIL", "supplier": "LLUCH", "cas": "8007-08-7"}, {"code": "1-069-T", "name": "GINGER OIL, CHINA", "supplier": "ALBERT VIELLE", "cas": "8007-08-7"}, {"code": "1-070", "name": "SPEARMINT 60%", "supplier": "", "cas": ""}, {"code": "1-071-01", "name": "SPEARMINT OIL CA31 [SAMDE]", "supplier": "", "cas": ""}, {"code": "1-071-T", "name": "SPEARMINT OIL FIRST CUTTING FCC(NATIVE VARIETY)(MENTHA SPICATA)[C3103]", "supplier": "C&A", "cas": "8008-79-5"}, {"code": "1-072", "name": "BASIL INDIA OIL", "supplier": "", "cas": ""}, {"code": "1-073", "name": "FENNEL SWEET OIL", "supplier": "", "cas": ""}, {"code": "1-074", "name": "STAR ANISEED OIL", "supplier": "", "cas": ""}, {"code": "1-075", "name": "SAGE OFFICINALIS OIL", "supplier": "", "cas": ""}, {"code": "1-076-T", "name": "CLARY SAGE OIL", "supplier": "", "cas": "8016-63-5"}, {"code": "1-077", "name": "TEA TREE OIL (PENTA)", "supplier": "", "cas": ""}, {"code": "1-078", "name": "TEA TREE OIL (MOELLHAUSEN)", "supplier": "", "cas": ""}, {"code": "1-079", "name": "CLOVE LEAF OIL, RECTIFIED", "supplier": "MOELLHAUSEN", "cas": "8000-34-8"}, {"code": "1-080", "name": "CLOVE BUD OIL (INDESSO)", "supplier": "INDESSO", "cas": "8000-34-8"}, {"code": "1-080-01", "name": "CLOVE BUD OIL (MOELLHAUSEN)", "supplier": "MOELLHAUSEN", "cas": "8000-34-8"}, {"code": "1-080-02", "name": "CLOVE BUD OIL SPL No. 410045", "supplier": "TIEN YUAN", "cas": "8000-34-8"}, {"code": "1-081", "name": "CINNAMON LEAF OIL, LOW SAFROLE N.I", "supplier": "", "cas": "8015-91-6"}, {"code": "1-082", "name": "CINNAMON BARK OIL", "supplier": "MOELLHAUSEN", "cas": "8015-91-6"}, {"code": "1-083", "name": "OIL ORANGE C.P. ENHANCED #2763 [C102763EXT]", "supplier": "C&A", "cas": "0"}, {"code": "1-084", "name": "OIL ORANGE VALENCIA 5-FOLD [C15069]", "supplier": "C&A", "cas": "8008-57-9; 8028-48-6"}, {"code": "1-085", "name": "OIL ORANGE CALIFORNIA TYPE C.P FCC[C15061]", "supplier": "C&A", "cas": "8028-48-6; 8008-57-9"}, {"code": "1-086", "name": "OIL ORANGE FLORIDA C.P MIDSEASON FCC[C15063]", "supplier": "C&A", "cas": "8028-48-6; 8008-57-9"}, {"code": "1-087", "name": "OIL BITTER ORANGE BRAZILIAN C.P FCC[C15079]", "supplier": "C&A", "cas": "68916-04-1"}, {"code": "1-088", "name": "ORANGE OIL BITTER H.P DOMINICAN FCC[C1107]", "supplier": "C&A", "cas": "68916-04-1"}, {"code": "1-089", "name": "ORANGE OIL ISRAELI TYPE C.P. FCC [C150611]", "supplier": "C&A", "cas": "8008-57-9; 8028-48-6"}, {"code": "1-090", "name": "ORANGE ESSENCE OIL 10-FOLD(SPECIAL DISTILLATION PROCEDURE)[C1509]", "supplier": "C&A", "cas": "68514-75-0"}, {"code": "1-091", "name": "OIL BLOOD ORANGE ITALIAN [C83099EXT]", "supplier": "C&A", "cas": "8008-57-9"}, {"code": "1-092", "name": "ORANGE OIL VALENCIA SESQUITERPENELESS [C15011]", "supplier": "C&A", "cas": "8028-48-6; 8008-57-9"}, {"code": "1-093", "name": "ORANGE ESSENCE OIL (FLAVOR GRADE) [C1109]", "supplier": "C&A", "cas": "68514-75-0"}, {"code": "1-094", "name": "ORANGE ESSENCE OIL 6-FOLD ENHANCED [C1160]", "supplier": "C&A", "cas": ""}, {"code": "1-095", "name": "BLOOD ORANGE OIL ITALIAN TAROCCO VARIETY [C830993]", "supplier": "C&A", "cas": "8008-57-9"}, {"code": "1-096", "name": "ORANGE OIL CP ENHANCED #2994 [C102994]", "supplier": "C&A", "cas": "0"}, {"code": "1-097", "name": "BITTER ORANGE ESSENCE OIL [C11090]", "supplier": "C&A", "cas": ""}, {"code": "1-098", "name": "TEMPLE ORANGE OIL FLORIDA 10-FOLD(SPECIAL DISTILLATION PROCEDURE) [C150625]", "supplier": "C&A", "cas": "8008-57-9; 8028-48-6"}, {"code": "1-099", "name": "ORANGE FLAVOR, NATURAL & ARTIFICIAL(OIL SOLUBLE)#3168 [103168]", "supplier": "TRILOGY", "cas": ""}, {"code": "1-100", "name": "ORANGE FLAVOR, NATURAL & ARTIFICIAL(OIL SOLUBLE) #3170 [C103170]", "supplier": "C&A", "cas": "0"}, {"code": "1-101", "name": "OIL BLOOD ORANGE ITALIAN 2-FOLD [C830992]", "supplier": "C&A", "cas": "8008-57-9"}, {"code": "1-102", "name": "OIL ORANGE VALENCIA 10-FOLD [C150610]", "supplier": "C&A", "cas": "8008-57-9; 8028-48-6"}, {"code": "1-103", "name": "OIL ORANGE VALENCIA 15-FOLD RECTIFIED(DECOLORIZED) [C150620R]", "supplier": "C&A", "cas": "68606-94-0"}, {"code": "1-104", "name": "ORANGE ESSENCE OIL 20-FOLD [C15091]", "supplier": "C&A", "cas": "68514-75-0"}, {"code": "1-105", "name": "BITTER ORANGE OIL DOMINICAN 5-FOLD [C15073]", "supplier": "C&A", "cas": "68916-04-1"}, {"code": "1-106", "name": "ORANGE OIL BRAZILIAN 10-FOLD [C150631]", "supplier": "C&A", "cas": "8028-48-6\n8008-57-9"}, {"code": "1-107", "name": "OIL ORANGE MIDSEASON 10-FOLD [C15065]", "supplier": "C&A", "cas": "68606-94-0"}, {"code": "1-108", "name": "OIL BLOOD ORANGE ITALIAN 5 FOLD TAROCCO VARIETY [C830994]", "supplier": "C&A", "cas": "8008-57-9"}, {"code": "1-109", "name": "OIL ORANGE RECTIFIED (DECOLORIZED) [C10613]", "supplier": "C&A", "cas": "8008-57-9\n8028-48-6"}, {"code": "1-110", "name": "MOLECULARLY DISTILLED ORANGE VALENCIA OIL [C150649]", "supplier": "C&A", "cas": "8008-57-9; 8028-48-6"}, {"code": "1-111", "name": "MOLECULARLY DISTILLED ORANGE VALENCIA 5 FOLD OIL [C150667]", "supplier": "C&A", "cas": "8008-57-9; 8028-48-6"}, {"code": "1-112", "name": "ORANGE ESSENCE OIL FLAVOR GRADE 5-FOLD [C150961]", "supplier": "C&A", "cas": ""}, {"code": "1-113", "name": "OIL ORANGE VALENCIA 5-FOLD RECTIFIED (DECOLORIZED) [C15000]", "supplier": "C&A", "cas": "8028-48-6; 8008-57-9"}, {"code": "1-114", "name": "OIL LEMON EXTRA SESQUITERPENELESS [C05022]", "supplier": "C&A", "cas": "68648-39-5"}, {"code": "1-115", "name": "LEMONGRASS OIL GUATEMALAN [C5520EXT]", "supplier": "C&A", "cas": "8007-02-1"}, {"code": "1-116", "name": "LEMON ESSENCE OIL 5-FOLD [C150338]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-117", "name": "LEMON JUICE CARBONYLS [C150342]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-118", "name": "LEMON TERPENELESS SPECIAL[C150313]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-119", "name": "OIL LEMON TERPENELESS EXTRA(-8 TO-10 ROTATION)[C150312]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-120", "name": "LEMON ESSENCE OIL ENRICHED 5-FOLD WONF [C150344]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-121", "name": "LEMON OIL BRAZILIAN TYPE C.P. SELECT FCC [C15031]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-122", "name": "LEMON OIL CALIFORNIA TYPE C.P. FCC(FROM INLAND FRUIT) [C15033]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-123", "name": "LEMON OIL CALIFORNIA TYPE C.P. EXTRA RECTIFIED (FURO COUMARIN REDUCED) [C15035]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-124", "name": "LEMON OIL ITALIAN CP PRIMOFIORE [C151696]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-125", "name": "LEMON ESSENCE OIL (TOP NOTES) [C150339]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-126", "name": "LEMON OIL CALIFORNIA TYPE 5-FOLD EXTRA RECIFIED [C150310]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-127", "name": "LEMON OIL MEYER TYPE #2422 WONF [C152422]", "supplier": "C&A", "cas": "N/A"}, {"code": "1-128", "name": "LEMON OIL PETITGRAIN [C1103EXT]", "supplier": "C&A", "cas": "8048-51-9"}, {"code": "1-129", "name": "MOLECULARLY DISTILLED LEMON CALIFORNIA OIL [C150824]", "supplier": "C&A", "cas": "84929-31-7"}, {"code": "1-130", "name": "MOLECULARLY DISTILLED LEMON CALIFORNIA 5-FOLD [C150825]", "supplier": "C&A", "cas": "84929-31-7"}, {"code": "1-131", "name": "LEMON OIL CALIFORNIA TYPE 10-FOLD EXTRA [C150319]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-132", "name": "OIL LEMON ITALIAN CP PRIMOFIORE 10 FOLD [C151698P]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-133", "name": "OIL LEMON ITALIAN 10 FOLD PELATRICE PRIMOFIORE [C152659P]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-134", "name": "OIL LEMON CALIFORNIA TYPE 5-FOLD CITRESSENCE [C15038]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-135", "name": "OIL LEMON ARGENTINA 5-FOLD [C150315]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-136", "name": "OIL LEMON BRAZILIAN 5-FOLD SELECT [C15032]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-137", "name": "LEMON OIL (SJG TYPE) [C150829]", "supplier": "C&A", "cas": "8008-57-9\n8028-48-6"}, {"code": "1-138", "name": "MELISSA OIL(LEMON BALM) [C8408]", "supplier": "C&A", "cas": "84082-61-1\n8014-71-9"}, {"code": "1-139", "name": "OIL LIME DISTILLED WEST INDIAN DOMINICAN TYPE FCC [C150416]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-140", "name": "LIME EXPRESSED WEST INDIAN FCC[C15046]", "supplier": "C&A", "cas": "68917-71-5"}, {"code": "1-141", "name": "LIME OIL EXPRESSED MEXICAN SESQUITERPENELESS [C11040]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-142", "name": "LEMON OIL CALIFORNIA TYPE C.P CITRESSENCE RECTIFIED (FURO COUMARIN REDUCED)[C150325]", "supplier": "C&A", "cas": "8008-56-8"}, {"code": "1-143", "name": "LIME OIL EXPRESSED PERSIAN 4-FOLD [C150420]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-144", "name": "LIME OIL DISTILLED WEST INDIAN(CLASSIC PROCESS)[C150427]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-145", "name": "LIME ESSENCE OIL [C2856M]", "supplier": "C&A", "cas": "N/A"}, {"code": "1-146", "name": "LIME OIL DISTILLED TERPENES [C0504]", "supplier": "C&A", "cas": "68917-71-5"}, {"code": "1-147", "name": "OIL LIME DISTILLED TERPENELESS (FROM MEXICAN OIL) [C150501]", "supplier": "C&A", "cas": "68916-84-7"}, {"code": "1-148", "name": "LIME OIL DISTILLED MEXICAN SESQUITERPENELESS [C15017]", "supplier": "C&A", "cas": "68916-84-7"}, {"code": "1-149", "name": "LIME OIL EXPRESSED TERPENELESS EXTRA [C150465]", "supplier": "C&A", "cas": "68917-71-5"}, {"code": "1-150", "name": "LIME OIL EXPRESSED WEST INDIAN 4-FOLD [C15047]", "supplier": "C&A", "cas": "68917-71-5"}, {"code": "1-151", "name": "LIME OIL DISTILLED TERPENELESS (-9 TO -11 ROTATION) [C15045]", "supplier": "C&A", "cas": "68916-84-7"}, {"code": "1-152", "name": "OIL LIME, NATURAL AND ARTIFICIAL #208 [C15049]", "supplier": "C&A", "cas": "68917-71-5"}, {"code": "1-153", "name": "OIL LIME DISTILLED PERUVIAN TYPE FCC [C115044]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-155", "name": "OIL LIME EXPRESSED MEXICAN TYPE FCC [C150421]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-156", "name": "OIL LIME EXPRESSED PERSIAN FCC [C1104]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-157", "name": "OIL LIME EXPRESSED WEST INDIAN RECTIFIED (FUROCOUMARIN REDUCED) (DECOLORIZED) [C150417]", "supplier": "C&A", "cas": "8008-26-2\n90063-52-8"}, {"code": "1-158", "name": "MOLECULARLY DISTILLED LIME EXPRESSED MEXICAN OIL [C11428]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-159", "name": "MOLECULARLY DISTILLED LIME EXPRESSED MEX 5-FOLD [C11435]", "supplier": "C&A", "cas": "8008-26-2"}, {"code": "1-160", "name": "OIL GRAPEFRUIT ENHANCER, NATURAL AND ARTIFICIAL ＃440 [C2527EXT]", "supplier": "C&A", "cas": ""}, {"code": "1-161", "name": "GRAPEFRUIT TERPENELESS FRACTION (NATURAL NOOTKETONE 50%) [CA53151]", "supplier": "C&A", "cas": "0"}, {"code": "1-162", "name": "OIL GRAPEFRUIT FLORIDA TYPE CP FCC (WHITE FRUIT, 0.1% NOOTKATONE) [C14022]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-163", "name": "GRAPEFRUIT OIL(FOR PERFUMERY)[C1566]", "supplier": "C&A", "cas": ""}, {"code": "1-164", "name": "OIL GRAPEFRUIT CALIFORNIA TYPE 10-FOLD [C15021]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-165", "name": "OIL GRAPEFRUIT FLORIDA TYPE 5-FOLD [C15025]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-166", "name": "GRAPEFRUIT OIL CALIFORNIA 5-FOLD (FROM PINK FRUIT) [C150266]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-167", "name": "OIL GRAPEFRUIT TERPENELESS EXTRA (MINIMUM 10.00% NOOTKETONE) [C15027]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-168", "name": "GRAPEFRUIT OIL CALIFORNIA TYPE 5-FOLD [C1517]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-169", "name": "GRAPEFRUIT OIL FLORIDA TYPE CP WONF (FROM WHITE FRUIT) [C14059]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-170", "name": "OIL GRAPEFRUIT FLORIDA RECTIFIED (DECOLORIZED) [C150220]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-171", "name": "NATURAL GRAPEFRUIT OIL #704 [C14704]", "supplier": "C&A", "cas": "0"}, {"code": "1-172", "name": "MOLECULARLY DISTILLED GRAPEFRUIT FLORIDA PINK OIL [C14121]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-173", "name": "MOLECULARLY DISTILLED GRAPEFRUIT FOLD [C14125]", "supplier": "C&A", "cas": "8016-20-4"}, {"code": "1-174", "name": "BERGAMOT OIL ITALIAN RECTIFIED [C2504]", "supplier": "C&A", "cas": "8007-75-8"}, {"code": "1-175", "name": "BERGAMOT OIL MINT AMERICAN 70/75%(MENTHA CITRATA)[C357075]", "supplier": "C&A", "cas": "68917-15-7"}, {"code": "1-176", "name": "BERGAMOT TERPENLESS OIL EXTRA [C25041]", "supplier": "C&A", "cas": "8007-75-8"}, {"code": "1-177", "name": "MANDARIN OIL RECTIFIED (DECOLORIZED) [C150506]", "supplier": "C&A", "cas": "8008-31-9\n84929-38-4"}, {"code": "1-178", "name": "MANDARIN OIL PETITGRAIN [C1105]", "supplier": "C&A", "cas": "8014-17-3"}, {"code": "1-179", "name": "MANDARIN OIL PETITGRAIN TERPENELESS [C15051]", "supplier": "C&A", "cas": "8008-31-9\n84929-38-4"}, {"code": "1-180", "name": "MANDARIN ITALIAN 4-FOLD [C15054]", "supplier": "C&A", "cas": "8008-31-9\n84929-38-4"}, {"code": "1-181", "name": "MOLECULARLY DISTILLED MANDARIN ITALIAN OIL [C150513]", "supplier": "C&A", "cas": "8008-31-9\n84929-38-4"}, {"code": "1-182", "name": "MOLECULARLY DISTILLED MANDARIN ITALIAN 5-FOLD [C150515]", "supplier": "C&A", "cas": ""}, {"code": "1-183", "name": "OIL MANDARIN RECTIFIED (DECOLORIZED) [C150506]", "supplier": "C&A", "cas": "8008-31-9\n84929-38-4"}, {"code": "1-184", "name": "OIL MANDARIN BRAZILIAN GREEN [C15055]", "supplier": "C&A", "cas": "8008-31-9\n84929-38-4"}, {"code": "1-185", "name": "EUCALYPTUS OIL CITRIODORA 75% [C2114 ]", "supplier": "C&A", "cas": ""}, {"code": "1-186", "name": "EUCALYPTOL FCC (NATURAL) [CA12465]", "supplier": "C&A", "cas": "0"}, {"code": "1-187", "name": "PEPPERMINT OIL REDISTILLED YAKIMA TYPE FCC [C35024]", "supplier": "C&A", "cas": ""}, {"code": "1-188", "name": "PEPPERMINT OIL NATURAL PRIME YAKIMA FCC [C35023]", "supplier": "C&A", "cas": "8006-90-4"}, {"code": "1-189", "name": "PEPPERMINT OIL REDISTILLED WILLAMETTE VALLEY FCC[C35032]", "supplier": "C&A", "cas": "68917-33-9\n84929-31-7"}, {"code": "1-190", "name": "PEPPERMINT OIL REDISTILLED MADRAS TYPE FCC[C350310]", "supplier": "C&A", "cas": "68917-33-9\n84929-31-7"}, {"code": "1-191", "name": "PEPPERMINT OIL REDISTILLED IDAHO FCC[C35021]", "supplier": "C&A", "cas": ""}, {"code": "1-192-T", "name": "PEPPERMINT OIL REDISTILLED MIDWEST TYPE FCC [C35082]", "supplier": "C&A", "cas": "8006-90-4"}, {"code": "1-193", "name": "PEPPERMINT OIL REDISTILLED MONTANA MOUNTAIN MINT TYPE FCC[C35067]", "supplier": "C&A", "cas": "68647-72-3"}, {"code": "1-194", "name": "PEPPERMINT OIL TRIPLE DISTILLED IDAHO FCC [C35022]", "supplier": "C&A", "cas": "68648-39-5"}, {"code": "1-195", "name": "PEPPERMINT OIL FIELD DISTILLED MIDWEST TYPE FCC[C35042]", "supplier": "C&A", "cas": "68917-71-5"}, {"code": "1-196", "name": "PEPPERMINT OIL REDISTILLED IDAHO TYPE FCC[C350271]", "supplier": "C&A", "cas": ""}, {"code": "1-197", "name": "PEPPERMINT OIL FIELD DISTILLED PRIME WILLAMETTE VALLEY FCC[C35030]", "supplier": "C&A", "cas": "68917-33-9\n84929-31-7"}, {"code": "1-198", "name": "PEPPERMINT OIL FIELD DISTILLED PRIME IDAHO FCC[C3502]", "supplier": "C&A", "cas": ""}, {"code": "1-199", "name": "CORNMINT OIL REDISTILLED INDIAN [C35010]", "supplier": "C&A", "cas": "68917-18-0"}, {"code": "1-200", "name": "CORNMINT OIL REDISTILLED PARAGUAY(MENTHA ARVENSIS)[C35011]", "supplier": "C&A", "cas": "68917-18-0"}, {"code": "1-201", "name": "CORNMINT OIL TRIPLE DISTILLED PARAGUAY(MENTHA ARVENSIS)[C3501]", "supplier": "C&A", "cas": "68917-18-0"}, {"code": "1-202", "name": "CORNMINT OIL TRIPLE DISTILLED INDIAN(MENTHA ARVENSIS)[C35018]", "supplier": "C&A", "cas": "68917-18-0"}, {"code": "1-203", "name": "CLOVE BUD OIL NATIVE[C4507]", "supplier": "C&A", "cas": ""}, {"code": "1-204", "name": "CLOVE LEAF OIL REDISTILLED INDONESIAN 85/87% FCC[C45081]", "supplier": "C&A", "cas": "0"}, {"code": "1-205", "name": "CLOVE LEAF OIL REDISTILLED INDONESIAN 90/92% [C45082]", "supplier": "C&A", "cas": "0"}, {"code": "1-206", "name": "CLOVE OIL BUDS EXTRA FCC [C45071]", "supplier": "C&A", "cas": ""}, {"code": "1-207", "name": "LAVENDER BULGARIAN PURE OIL FCC(LAVENDULA ANGUSTIFOLIA)[C2156]", "supplier": "C&A", "cas": "8000-28-0"}, {"code": "1-208", "name": "LAVENDER OIL 40/42 EXTRA FCC [C2157]", "supplier": "C&A", "cas": "8000-28-0"}, {"code": "1-209", "name": "BUCHU LEAVES OIL (BETULINA QUALITY) [C21355]", "supplier": "C&A", "cas": "0"}, {"code": "1-210-T", "name": "OIL SANDALWOOD INDIAN FCC [C21211]", "supplier": "C&A", "cas": "8006-87-9"}, {"code": "1-211", "name": "TAGET OIL SOUTH AFRICAN [C2122]", "supplier": "C&A", "cas": "0"}, {"code": "1-212-T", "name": "CARDAMOM OIL FCC [C4104]", "supplier": "C&A", "cas": "8000-66-6"}, {"code": "1-213", "name": "CARDAMON OIL #2600N WONF[C412600]", "supplier": "C&A", "cas": "0"}, {"code": "1-214", "name": "CARDMON OIL NATURAL#2400N WONF[C442400]", "supplier": "C&A", "cas": "0"}, {"code": "1-215", "name": "CINNAMON BARK OIL [C25281]", "supplier": "C&A", "cas": "0"}, {"code": "1-216", "name": "CINNAMON OIL BARK CEYLON 65%[C45055]", "supplier": "C&A", "cas": "0"}, {"code": "1-217", "name": "CINNAMON OIL BARK WONF#737 [C18737]", "supplier": "C&A", "cas": "0"}, {"code": "1-218", "name": "LAVANDIN ABRIALIS PURE OIL FCC [C7101]", "supplier": "C&A", "cas": "0"}, {"code": "1-219-T", "name": "LAVANDIN OIL GROSSO PURE [C71011]", "supplier": "C&A", "cas": "8022-15-9"}, {"code": "1-220", "name": "LAVANDIN SUPER PURE OIL [C75012]", "supplier": "C&A", "cas": "8022-15-9"}, {"code": "1-221", "name": "TANGERINE ESSENCE OIL 5-FOLD [C15583]", "supplier": "C&A", "cas": "N/A"}, {"code": "1-222", "name": "OIL TANGERINE CALIFORNIA C.P. FCC [C11102EXT]", "supplier": "C&A", "cas": "8008-31-9"}, {"code": "1-223", "name": "OIL TANGERINE RECTIFIED (DECOLORIZED) [C1612]", "supplier": "C&A", "cas": "8008-31-9"}, {"code": "1-224", "name": "BAY OIL WEST INDIAN FCC [C4102]", "supplier": "C&A", "cas": "80 23-80-1\n90131-21-8"}, {"code": "1-225", "name": "BAY OIL WONF[C41078]", "supplier": "C&A", "cas": "0"}, {"code": "1-226", "name": "GERANIUM CHINESE OIL(YUN LING SHAN) [C21150]", "supplier": "C&A", "cas": ""}, {"code": "1-227", "name": "GERANIUM EGYPTIAN OIL [C2549]", "supplier": "C&A", "cas": ""}, {"code": "1-228", "name": "GINGER CHINESS OIL FCC [C4122]", "supplier": "C&A", "cas": "8008-08-7"}, {"code": "1-229", "name": "GINGER OIL COCHIN TERPENELESS [C45135]", "supplier": "C&A", "cas": "0"}, {"code": "1-230", "name": "NUTMEG OIL EAST INDIAN SELECT FCC[C4514]", "supplier": "C&A", "cas": ""}, {"code": "1-231", "name": "OIL GINER FCC SELECT [C41223]", "supplier": "C&A", "cas": "8008-08-7"}, {"code": "1-232", "name": "MOLECULARLY DISTILLED CLEMENTINE OIL [C30308]", "supplier": "C&A", "cas": "8008-31-9"}, {"code": "1-233", "name": "OIL CLEMENTINE [C30301EXT]", "supplier": "C&A", "cas": "8008-31-9"}, {"code": "1-234", "name": "PIMENTO BERRY OIL WEST INDIAN FCC [C2521]", "supplier": "C&A", "cas": "0"}, {"code": "1-234-01", "name": "PIMENTO BERRY OIL (MOELLHAUSEN)", "supplier": "", "cas": ""}, {"code": "1-235", "name": "PIMENTO LEAF OIL WEST INDIAN FCC [C25211]", "supplier": "C&A", "cas": "0"}, {"code": "1-236", "name": "ROSEMARY OIL MOROCCAN PURE FCC [C4223]", "supplier": "C&A", "cas": "8000-25-7"}, {"code": "1-237", "name": "ROSEMARY OIL TUNISIAN PURE[C4221]", "supplier": "C&A", "cas": "8000-25-7"}, {"code": "1-238", "name": "ORGANIC FRANKINCENSE OIL [G895207]", "supplier": "C&A", "cas": ""}, {"code": "1-239", "name": "ORGANIC OREGANO OIL (ORIGANUM CAPITATUS) [CG9162]", "supplier": "C&A", "cas": "0"}, {"code": "1-240", "name": "BASIL OIL FCC (COMOROS TYPE) [C15290]", "supplier": "C&A", "cas": "8015-73-4"}, {"code": "1-241", "name": "BLACK PEPPER OIL SUPER FCC [C4116]", "supplier": "C&A", "cas": "8006-82-4"}, {"code": "1-241-01", "name": "BLACK PEPPER OIL", "supplier": "", "cas": ""}, {"code": "1-242", "name": "CARAWAY OIL FCC(EUROPEAN DISTILLED)[C4103]", "supplier": "C&A", "cas": "0"}, {"code": "1-242-01", "name": "CARAWAY OIL (MOELLHAUSEN)", "supplier": "8000-42-8", "cas": "8000-42-8"}, {"code": "1-243", "name": "CARROT SEED OIL FCC (EUROPEAN DISTILLED) [C2107]", "supplier": "C&A", "cas": "8015-88-1"}, {"code": "1-244", "name": "CASSIA OIL CHINESE REDISTILLED [C4505]", "supplier": "C&A", "cas": "0"}, {"code": "1-244-1", "name": "CASSIA OIL (BESTALLY)", "supplier": "", "cas": ""}, {"code": "1-245", "name": "CEDARLEAF OIL WESTERN RED [C60697]", "supplier": "C&A", "cas": "0"}, {"code": "1-246", "name": "CHAMOMILE OIL BLUE HUNGARIAN (MATRICARIA CHAMOMILLA)[C21008]", "supplier": "C&A", "cas": "8002-66-2"}, {"code": "1-247", "name": "CHAMOMILE ROMAN OIL(ANTHEMIS NOBILIS)[C21010]", "supplier": "C&A", "cas": "8015-92-7"}, {"code": "1-247-01", "name": "ROMAN CHAMOMILE OIL", "supplier": "", "cas": ""}, {"code": "1-249", "name": "CLOVE OIL #715 [C45715]", "supplier": "C&A", "cas": "0"}, {"code": "1-250-T", "name": "CLARY SAGE OIL(SALVIA SCLAREA L.) [C4119AA]", "supplier": "C&A", "cas": "8016-63-5"}, {"code": "1-251", "name": "OIL CORIANDER SEED FCC [C4110]", "supplier": "C&A", "cas": "8008-52-4"}, {"code": "1-252", "name": "CUMIN SEED OIL FCC [C2343]", "supplier": "C&A", "cas": "0"}, {"code": "1-252-1", "name": "CUMIN OIL (MOELLHAUSEN)", "supplier": "", "cas": ""}, {"code": "1-254", "name": "DILLWEED AMERICAN OIL FCC(30% MIN) [C4511]", "supplier": "C&A", "cas": "0"}, {"code": "1-255", "name": "ENCAPSULATED GARLIC OIL (GMO FREE) (WATER DISPERSIBLE) [F41098]", "supplier": "TRILOGY", "cas": ""}, {"code": "1-256", "name": "FIR NEEDLE OIL SIBERIAN FCC [8021]", "supplier": "C&A", "cas": ""}, {"code": "1-257", "name": "GALBANUM REDISTILLED OIL [C72501]", "supplier": "C&A", "cas": "0"}, {"code": "1-258", "name": "GARLIC OIL [C2151EXT]", "supplier": "C&A", "cas": "0"}, {"code": "1-259", "name": "HO WOOD OIL TERPENLESS [C29663]", "supplier": "C&A", "cas": "0"}, {"code": "1-260-01-T", "name": "LOVAGE ROOT OIL (MOELLHAUSEN)", "supplier": "", "cas": "8016-31-7"}, {"code": "1-260-T", "name": "LOVAGE OIL(EUROPEAN DISTILLED)[C2144]", "supplier": "C&A", "cas": "8016-31-7"}, {"code": "1-261", "name": "MAGNOLIA FLOWERS OIL [C3950]", "supplier": "C&A", "cas": "92457-18-6"}, {"code": "1-262", "name": "MANGO FLAVOR NATURAL OIL(WEST INDIAN TYPE) [C92496]", "supplier": "C&A", "cas": ""}, {"code": "1-263", "name": "MARJORAM SPANISH PURE OIL(THYMUS MASTICHINA)[C2137]", "supplier": "C&A", "cas": ""}, {"code": "1-264-T", "name": "NEROLI OIL BIGARADE [C2119]", "supplier": "C&A", "cas": "8016-38-4"}, {"code": "1-265", "name": "NUTMEG OIL EAST INDIAN SUPER FCC (SO-CALLED MACE OIL) [C4516]", "supplier": "C&A", "cas": "0"}, {"code": "1-266", "name": "OIL NEROLI SYNTHETIC #1140(FOR FRAGRANCES)[C21191]", "supplier": "C&A", "cas": "8016-38-4"}, {"code": "1-267", "name": "OIL ORIGANUM TURKISH PURE (THYMBRA CAPITATAE) [C2828]", "supplier": "C&A", "cas": "0"}, {"code": "1-268", "name": "OIL WINTERGREEN TERPENELESS (NATURAL METHYL SALICYLATE 98%) [C32745]", "supplier": "C&A", "cas": "0"}, {"code": "1-269", "name": "ONION OIL [C4561]", "supplier": "C&A", "cas": "0"}, {"code": "1-270", "name": "ORANG OIL BITTER DOMINICAN RECTIFIED(FURO COUMARIN REDUCED)[C15077]", "supplier": "C&A", "cas": ""}, {"code": "1-271", "name": "OIL ORANGE TERPENES EX-5-FOLD[C0506]", "supplier": "C&A", "cas": "68647-72-3"}, {"code": "1-272", "name": "PALMAROSA OIL [C28310]", "supplier": "C&A", "cas": "0"}, {"code": "1-273", "name": "PARSLEY LEAF OIL [C41155]", "supplier": "C&A", "cas": "8000-68-8"}, {"code": "1-274-T", "name": "PATCHOULI OIL EAST INDIAN (FFGB) (MINIMUM 34% PATCHOULI ALCOHOL) [C2120]", "supplier": "C&A", "cas": "8014-09-3"}, {"code": "1-275-T", "name": "PETITGRAIN OIL S.A CORDIILLERA EXTRA FCC [C21011]", "supplier": "C&A", "cas": "8016-44-2/8014-17-3"}, {"code": "1-276", "name": "SAGE OIL DALMATIAN FCC(50%THUJONE) [C4119]", "supplier": "C&A", "cas": "0"}, {"code": "1-277", "name": "SWEET FENNEL OIL [C2142]", "supplier": "C&A", "cas": "84455-29-8\n8006-84-6"}, {"code": "1-278", "name": "TANGERINE OIL DANCY TYPE 5-FOLD C15111", "supplier": "C&A", "cas": ""}, {"code": "1-279", "name": "TEA TREE OIL AUSTRALIAN(MELALEUCA ALTERNIFOLIA) [C2123]", "supplier": "C&A", "cas": "68647-73-4"}, {"code": "1-280", "name": "TENGERINE ESSENCE OIL [C15775]", "supplier": "C&A", "cas": "8008-31-9"}, {"code": "1-281", "name": "THYME RED SPANISH OIL FCC(THYMUS ZYGIS)[C2139]", "supplier": "C&A", "cas": "0"}, {"code": "1-283-T", "name": "OIL VETIVERT HAITIAN FCC [C2502]", "supplier": "C&A", "cas": "84238-29-9"}, {"code": "1-284", "name": "WINTERGREEN OIL REDISTILLED CHINESE FCC(YUN LING SHAN) [C2143]", "supplier": "C&A", "cas": "68917-75-9"}, {"code": "1-285", "name": "YUZU OIL DISTILLED[C75303]", "supplier": "C&A", "cas": "0"}, {"code": "1-286", "name": "OIL SPEARMINT RECTIFIED FCC (FAR EAST SCOTCH VARIETY)[C3506]", "supplier": "C&A", "cas": "8008-79-5"}, {"code": "1-287", "name": "ORGANIC SPEARMINT OIL [G3201]", "supplier": "C&A", "cas": ""}, {"code": "1-288", "name": "OIL SPEARMINT, NATURAL & ARTIFICIAL #1302 [858]", "supplier": "C&A", "cas": ""}, {"code": "1-289", "name": "OIL SPEARMINT TERPENES [0512]", "supplier": "C&A", "cas": ""}, {"code": "1-290", "name": "OIL SPEARMINT TERPENLESS (EX NATIVE VARIETY) [3504]", "supplier": "C&A", "cas": ""}, {"code": "1-296", "name": "OIL PEPPERMINT TERPENES AMERICAN [C5503]", "supplier": "C&A", "cas": "68917-33-9\n84929-31-7"}, {"code": "1-297", "name": "OIL PEPPERMINT TERPENELESS (FROM WILLAMETTE OIL) [C35033]", "supplier": "C&A", "cas": "68917-33-9\n84929-31-7"}, {"code": "1-298", "name": "VIOLET LEAVES ABSOLUTE EGYPTIAN [C6114]", "supplier": "C&A", "cas": "90147-36-7\n8024-08-6"}, {"code": "1-299", "name": "CINNAMON LEAF CEYLON FCC (BLEACHED) [C4506]", "supplier": "C&A", "cas": "8015-91-6"}, {"code": "1-300-T", "name": "Petitgrain Oil [C25210]", "supplier": "C&A", "cas": "8014-17-3"}, {"code": "1-301", "name": "ROSEMARY OIL, SPANISH", "supplier": "MOELLHAUSEN", "cas": "8000-25-7"}, {"code": "1-302", "name": "ROSEMARY OIL, SPANISH", "supplier": "PENTA", "cas": "8000-25-7"}, {"code": "1-303", "name": "PATCHOULY LIGHT OIL (INDESSO)", "supplier": "", "cas": "INDESSO"}, {"code": "1-304", "name": "NUTMEG OIL", "supplier": "MOELLHAUSEN", "cas": "8008-45-5"}, {"code": "1-305", "name": "GUAIACWOOD OIL (한빛)", "supplier": "", "cas": "한빛"}, {"code": "1-306", "name": "OIL GRAPEFRUIT ENHANCER,NATRUAL AND ARTIFICIAL #440 [C25271EXT]", "supplier": "C&A", "cas": ""}, {"code": "1-307", "name": "CITRONELLOL PURE FCC [A523092]", "supplier": "C&A", "cas": ""}, {"code": "1-308", "name": "ANETHOLE 21/22 FCC [C52086]", "supplier": "C&A", "cas": "0"}, {"code": "1-309", "name": "ALLYL AMYL GLYCOLATE [A71296]", "supplier": "C&A", "cas": ""}, {"code": "1-310-T", "name": "ABSOLUTE IMMORTELLE [C6105]", "supplier": "C&A", "cas": "8023-95-8"}, {"code": "1-311", "name": "COUMARIN CRYSTALS [A19141]", "supplier": "C&A", "cas": ""}, {"code": "1-312", "name": "NEROLIN BROMELIA CRYSTALS [A12768]", "supplier": "C&A", "cas": ""}, {"code": "1-313", "name": "PINE NIEEDLE OIL", "supplier": "", "cas": "8023-99-2/2906 불확실"}, {"code": "1-314", "name": "ABSOLUTE JASMINE EGYPTIAN [C6106]", "supplier": "C&A", "cas": "84776-64-7"}, {"code": "1-315", "name": "ORANG FLOWERS ABSOLUTE [C6120]", "supplier": "C&A", "cas": "8030-28-2"}, {"code": "1-316", "name": "ABSOLUTE OSMANTHUS [C6121]", "supplier": "C&A", "cas": "68917-05-5"}, {"code": "1-316-01", "name": "OSMANTHUS ABS. CHINA", "supplier": "", "cas": "ALBERT VIEILLE"}, {"code": "1-317", "name": "CELERY SEED INDIAN SELECT FCC [C2109]", "supplier": "C&A", "cas": "0"}, {"code": "1-318", "name": "PINE TERPENELESS (NATRUAL TERPINEOL) OIL [C25060]", "supplier": "C&A", "cas": "68647-72-3"}, {"code": "1-319", "name": "PATCHOULOL 962", "supplier": "", "cas": "INDESSO"}, {"code": "1-320", "name": "CHAMOMILE BLUE OIL, ORGANIC [G821088]", "supplier": "C&A", "cas": ""}, {"code": "1-321", "name": "THYME OIL WHITE N.I.", "supplier": "", "cas": "MOELLHAUSEN"}, {"code": "1-322", "name": "OIL ORANGE VALENCIA #676 [C150676]", "supplier": "C&A", "cas": "68647-72-3"}, {"code": "1-323", "name": "HELIOTROPINE Recrystallized Extra FCC [A12911]", "supplier": "C&A", "cas": ""}, {"code": "1-331", "name": "ROASTED GARLIC AND RED BELL PEPPER TYPE FLAVOR #345 [F55345]", "supplier": "TRILOGY", "cas": ""}, {"code": "1-332", "name": "GARLIC CONCENTRATE, NATURAL (OIL SOLUBLE) #200 [F2153]", "supplier": "TRILOGY", "cas": ""}, {"code": "1-333", "name": "GARLIC CONCENTRATE, NATURAL (WATER SOLUBLE)#205 [F50297]", "supplier": "TRILOGY", "cas": ""}, {"code": "1-334", "name": "LIME OIL G09200", "supplier": "G09200", "cas": ""}, {"code": "1-335", "name": "OIL TANGERINE CALIFORNIA C.P. 5-FOLD [C11103]", "supplier": "C&A", "cas": "8048-51-9"}, {"code": "1-336", "name": "2-ACETYLPYRAZINE FCC [CA13126]", "supplier": "C&A", "cas": "22047-25-2"}, {"code": "1-338", "name": "N&A LIME OIL DISTILLED #211", "supplier": "C15211", "cas": ""}, {"code": "1-339", "name": "FENUGREEK SOLID EXTRACT #002 [C89002]", "supplier": "C&A", "cas": "0"}, {"code": "1-340", "name": "ST.JOHNS BREAD SOLID EXTRACT #050 [C89050]", "supplier": "C&A", "cas": "0"}, {"code": "1-341", "name": "FENUGREEK SOLID EXTRACT #044 [C89044]", "supplier": "C&A", "cas": "0"}, {"code": "1-343", "name": "CYPRESS OIL SPAIN", "supplier": "", "cas": "ALBERT VIEILLE"}, {"code": "1-344", "name": "YLANG OIL EXTRA", "supplier": "", "cas": "LLUCH"}, {"code": "1-345", "name": "MARJORAM OIL", "supplier": "", "cas": "MOELLHAUSEN"}, {"code": "1-346", "name": "OIL CANANGA JAVA EXTRA FCC [2106]", "supplier": "", "cas": ""}, {"code": "1-347", "name": "PERU BALSAM", "supplier": "", "cas": "LLUCH"}, {"code": "1-348", "name": "OLIBANUM OIL (FRANKINCENSE)", "supplier": "", "cas": "MOELLHAUSEN"}, {"code": "1-349", "name": "OTTO OF ROSE BULGARIAN [C4224]", "supplier": "", "cas": "8007-01-0"}, {"code": "1-350", "name": "GURJUN BALSAM [C2116]", "supplier": "C&A", "cas": "C2116"}, {"code": "1-351", "name": "BOURBOBN VANILLA EXTRACT 3FOLD (EUROVANILLE)", "supplier": "", "cas": ""}, {"code": "1-352", "name": "BOURBON VANILLA OLEORESIN 20X [C25460]", "supplier": "", "cas": ""}, {"code": "1-353", "name": "COCOA EXTRACT R950", "supplier": "", "cas": ""}, {"code": "1-354", "name": "BEES WAX ABSOLUTE", "supplier": "", "cas": ""}, {"code": "1-355", "name": "FENUGREEK EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-356", "name": "PERU BALSAM EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-357-T", "name": "CHAMOMILE EXTRACT (CHI)", "supplier": "", "cas": "8002-66-2"}, {"code": "1-358", "name": "LABDANUM EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-359-T", "name": "RAISIN CONCENTRATE (CHI)", "supplier": "", "cas": "68915-86-6"}, {"code": "1-360-T", "name": "BENZOIN RESINOID (CHI)", "supplier": "", "cas": "9000-05-9"}, {"code": "1-361-T", "name": "VALERIAN ROOT OIL (CHI)", "supplier": "", "cas": "8008-88-6"}, {"code": "1-362", "name": "IMMOTELLE ABSOLUTE (CHI)", "supplier": "", "cas": ""}, {"code": "1-363-T", "name": "ORRIS ROOT EXTRACT (CHI)", "supplier": "", "cas": "8002-73-1"}, {"code": "1-364", "name": "MOLASSES EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-365", "name": "CINNAMON LEAF OIL (CHI)", "supplier": "", "cas": ""}, {"code": "1-366", "name": "KOLA NUT EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-367-T", "name": "ALFALFA EXTRACT (CHI)", "supplier": "", "cas": "84082-36-0"}, {"code": "1-368", "name": "COCOA EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-369", "name": "MALT EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-370-T", "name": "VANILLA EXTRACT (CHI)", "supplier": "", "cas": "8024-06-4"}, {"code": "1-371", "name": "FIG EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-372-T", "name": "CAROB BEAN EXTRACT (CHI)", "supplier": "", "cas": "84961-45-5"}, {"code": "1-373-T", "name": "LOVAGE EXTRACT (GFT)", "supplier": "", "cas": "8016-31-7"}, {"code": "1-374", "name": "COFFEE EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-375-T", "name": "LICORICE EXTRACT (CHI)", "supplier": "", "cas": "84775-66-6"}, {"code": "1-376-T", "name": "TOLU BALSAM (FKA)", "supplier": "", "cas": "9000-64-0"}, {"code": "1-377", "name": "RED JUJUBE EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-378", "name": "ZIMBABWE TOBACCO EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-379", "name": "YLANG YLANG #3 PURE [C85442]", "supplier": "C&A", "cas": "8006-1-3"}, {"code": "1-380", "name": "HE NAN TOBACCO EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-381", "name": "VERTIVER OIL (ALBERT VIEIL)", "supplier": "", "cas": ""}, {"code": "1-382", "name": "RED JUJUBE ABS (CHI)", "supplier": "", "cas": ""}, {"code": "1-384-01-T", "name": "NEROLI OIL, BIGARADE (LLUCH)", "supplier": "", "cas": ""}, {"code": "1-385", "name": "COCOA EXTRACT R950 [HERTZ & SELCK]", "supplier": "", "cas": ""}, {"code": "1-386", "name": "Saint Johns Bread Extract 3N172 [BELL F&F]", "supplier": "", "cas": ""}, {"code": "1-387-T", "name": "FENUGREEK EXTRACT 141.80786 3N043 [BELL]", "supplier": "", "cas": ""}, {"code": "1-389", "name": "바닐라추출물 MC-11030 3N129", "supplier": "", "cas": ""}, {"code": "1-390", "name": "BRF 63860 3N101 [HETZ&SELCK]", "supplier": "", "cas": ""}, {"code": "1-391", "name": "SWTFX 1758 3N065 [HERTZ&SELCK]", "supplier": "", "cas": ""}, {"code": "1-393", "name": "건오얏 농축물 3N181 (PRUNE)", "supplier": "", "cas": ""}, {"code": "1-394", "name": "YUNYAN TOBACCO ABS (CHI)", "supplier": "", "cas": ""}, {"code": "1-395", "name": "HENAN TOBACCO ABS (CHI)", "supplier": "", "cas": ""}, {"code": "1-396", "name": "ZIMBABWE ABS (CHI)", "supplier": "", "cas": ""}, {"code": "1-397", "name": "SUN CURED TOBACCO EXT (CHI)", "supplier": "", "cas": ""}, {"code": "1-398", "name": "BURLEY EXT (CHI)", "supplier": "", "cas": ""}, {"code": "1-399", "name": "OAKMOSS ABS 10% ALC (CHI)", "supplier": "", "cas": ""}, {"code": "1-400", "name": "LABDANUM ABS 10% ALC (CHI)", "supplier": "", "cas": ""}, {"code": "1-401", "name": "JASMIN ABS 10% ALC (CHI)", "supplier": "", "cas": ""}, {"code": "1-402", "name": "CHAMOMILE ABS 10% ALC (CHI)", "supplier": "", "cas": ""}, {"code": "1-403", "name": "APRICOT ABS (CHI)", "supplier": "", "cas": ""}, {"code": "1-404", "name": "BIRCH TAR OIL (LLUCH)", "supplier": "", "cas": "8001-88-5"}, {"code": "1-405", "name": "FUSEL OIL REDISTILLED (PENTA-합성)", "supplier": "", "cas": ""}, {"code": "1-406", "name": "YUNNAN TOBACCO ABS (CHI)", "supplier": "", "cas": ""}, {"code": "1-407", "name": "TOBACCO EXT (HENAN)", "supplier": "", "cas": ""}, {"code": "1-408", "name": "PINE NEEDL SIBERIAN OIL (LLUCH)", "supplier": "", "cas": ""}, {"code": "1-409", "name": "PINE SIBERIAN OIL N.I (MOELLHAUSEN)", "supplier": "", "cas": ""}, {"code": "1-410", "name": "AROMISE OIL MOROCCO (MOELLHAUSEN)", "supplier": "", "cas": ""}, {"code": "1-411", "name": "SOUR PLUM EXTRACT (CHI)", "supplier": "", "cas": ""}, {"code": "1-412", "name": "FRUCTUS MUME EXTRACH (CHI)", "supplier": "", "cas": ""}, {"code": "1-413", "name": "PEPPERMINT OIL (HIGH FURAN)", "supplier": "", "cas": "8006-90-4"}, {"code": "1-428", "name": "PEPPERMINT OIL (EX-MENTHA PIPERITA)", "supplier": "SAMDE/1-002 50%대체", "cas": "8006-90-4"}, {"code": "1-467", "name": "CLOVE BUD OIL 210144", "supplier": "INDAROMA", "cas": "8000-34-8"}, {"code": "1-468", "name": "CLOVE OIL(HG)(EUGENOL RECTIFIED/210154)", "supplier": "INDAROMA", "cas": "97-53-0"}, {"code": "1-486", "name": "Oil Spearmint (Mentha Cardiaca) [C3982]", "supplier": "", "cas": "8008-79-5"}, {"code": "1-500", "name": "CEDARWOOD OIL TEXAS LIGHT", "supplier": "BERJE", "cas": "68990-83-0"}, {"code": "1-501", "name": "CELERY EXTRACT (GFT)", "supplier": "", "cas": ""}, {"code": "1-502", "name": "PEPPERMINT OILL R.70% (SAMDE)", "supplier": "", "cas": ""}, {"code": "1-503", "name": "CLOVE LEAF OIL RECTIFIED 210126", "supplier": "", "cas": ""}, {"code": "1-524", "name": "PATCHOULI OIL DARK 210220", "supplier": "INDAROMA", "cas": ""}, {"code": "1-529", "name": "PERILLA LEAF OIL", "supplier": "도터라인(PENTA)", "cas": ""}, {"code": "2-001-CODE", "name": "CIS-3-HEXENYL CAPROATE(HEXANOATE) (처방풀때 사용)", "supplier": "", "cas": ""}, {"code": "2-002-CODE", "name": "CIS-3-HEXENYL OCTANOATE (처방풀때 사용)", "supplier": "", "cas": ""}, {"code": "2-003-CODE", "name": "GERANYL DECANOATE (처방풀때 사용)", "supplier": "", "cas": ""}, {"code": "2-004-CODE", "name": "CITRONELLYL OCTANOATE (처방풀때 사용)", "supplier": "", "cas": ""}, {"code": "2-005-CODE", "name": "CITRONELLYL DECANOATE (처방풀때 사용)", "supplier": "", "cas": ""}, {"code": "2-006-CODE", "name": "GERANYL OCTANOATE (처방풀때 사용)", "supplier": "", "cas": ""}, {"code": "3-001", "name": "BLUEBERRY FLAVOR HT-BA60918", "supplier": "", "cas": ""}, {"code": "3-002", "name": "플라워가든향 AR-210304-04", "supplier": "", "cas": ""}, {"code": "3-003", "name": "BLUEBERRY FLAVOR HT-BA60918", "supplier": "", "cas": ""}, {"code": "3-007", "name": "MELON MINT BASE HT-BA56660", "supplier": "한빛향료", "cas": ""}, {"code": "3-008", "name": "GRAPE BASE TA2-0059", "supplier": "FKA", "cas": ""}, {"code": "3-012", "name": "콜라향 CONC TA2-0613", "supplier": "한불", "cas": ""}, {"code": "3-013", "name": "망고향 HT-AH27279", "supplier": "한빛향료", "cas": ""}, {"code": "3-014", "name": "CHENPI 19117 BASE", "supplier": "HT-AI22912", "cas": ""}, {"code": "3-017", "name": "BLUEBERRY MINT BASE", "supplier": "HT-AH27885", "cas": ""}, {"code": "3-021", "name": "BLACK TEA BASE", "supplier": "TA2-0356", "cas": ""}, {"code": "3-021-2", "name": "BLACK TEA FLAVOR 10X BASE-2 (TD2-0482)", "supplier": "TD2-0482", "cas": ""}, {"code": "3-022", "name": "콜라 TA2-0098", "supplier": "", "cas": ""}, {"code": "3-023", "name": "와인민트향2 HT-AI23807", "supplier": "한빛향료", "cas": ""}, {"code": "3-024", "name": "MOJITO FLAVOR 19198 BASE(HT-BA30663)", "supplier": "한빛향료", "cas": ""}, {"code": "3-026", "name": "CHOCOLATE FLAVOR TA2-0668", "supplier": "", "cas": ""}, {"code": "3-027", "name": "사과향 HT-BA69968", "supplier": "한빛향료", "cas": ""}, {"code": "3-028", "name": "GREEN APPLE TA2-0151", "supplier": "", "cas": ""}, {"code": "3-029", "name": "COCONUT HT-BA56542", "supplier": "", "cas": ""}, {"code": "3-030", "name": "GINGER PREMIUM TYPE TA2-0884", "supplier": "한불화농", "cas": ""}, {"code": "3-033", "name": "LYCHEE TA2-0162", "supplier": "", "cas": ""}, {"code": "3-034", "name": "BLACK TEA FLAVOR (TA2-0247)", "supplier": "TA2-0247", "cas": ""}, {"code": "3-035", "name": "TOFFEE FLAVOR TB2-0151", "supplier": "한불화농", "cas": ""}, {"code": "3-036", "name": "FLAVOURING M(BLEND B)HA-BC24199", "supplier": "코어/INDO W.", "cas": "141-78-6(24%),MCT OIL(76%)"}, {"code": "3-037", "name": "오이향 BB-F-1907", "supplier": "", "cas": ""}, {"code": "3-038", "name": "YOGURT TB2-0445", "supplier": "한불화농", "cas": ""}, {"code": "3-040", "name": "MANGOSTEEN TB2-0447", "supplier": "", "cas": ""}, {"code": "3-041", "name": "WHITE WINE TB2-0449", "supplier": "", "cas": ""}, {"code": "3-042", "name": "HERBACEOUS MINT TB2-0450", "supplier": "", "cas": ""}, {"code": "3-043", "name": "RED WINE HT-BB24986", "supplier": "", "cas": ""}, {"code": "3-045", "name": "바닐라향21 HT-BA52182", "supplier": "", "cas": ""}, {"code": "3-047", "name": "FLAVOURING M", "supplier": "PACKING 20KG / E.ACETATE 24%MCT", "cas": ""}, {"code": "3-048", "name": "MATCHA FLAVOR HTD-BE50025 (HFF)", "supplier": "", "cas": ""}, {"code": "3-049", "name": "SESAME FLAVOR HTD-BE50027 (HFF)", "supplier": "", "cas": ""}, {"code": "A12443", "name": "ETHYL-2-METHYL BUTYRATE [CA12443]", "supplier": "C&A", "cas": "0"}, {"code": "AP-19337", "name": "PERFUME (T) AP-19337", "supplier": "", "cas": ""}, {"code": "AST-0013-T", "name": "MENTHOL CRYSTALS (ARVENSIS) KR 3N074", "supplier": "TIEN YUAN", "cas": "2216-51-5"}, {"code": "AST-0014", "name": "MENTHOL CRYSTALS (SS/Mane)", "supplier": "Mane/Natural Menthol EO-4001", "cas": ""}, {"code": "AST-0015", "name": "MENTHOL CRYSTALS", "supplier": "INDO WORLD(INDO)", "cas": "2216-51-5"}, {"code": "AST-0031-F", "name": "MENTHOL CRYSTALS (ARVENSIS) KFDA", "supplier": "TIEN YUAN", "cas": "2216-51-5 / 2665 / M021 / 3.400"}, {"code": "AST-0034", "name": "MENTHOL CRYSTAL P(INDIA)", "supplier": "SAMDE", "cas": "2216-51-5"}, {"code": "AST-0035", "name": "MENTHOL (합성)", "supplier": "", "cas": "2216-51-5"}, {"code": "AST-A0033-T", "name": "L-MENTHOL (PIPERITA)", "supplier": "TIEN YUAN", "cas": ""}, {"code": "C25218", "name": "OIL PETITGRAIN S.A. PERFUMERY [C25218]", "supplier": "C&A", "cas": "0"}, {"code": "CA53189", "name": "SINENSAL 18/20% EX ORANGE(NATURAL) [A53189]", "supplier": "C&A", "cas": ""}, {"code": "FA0009", "name": "GUMMINT TO180212-16", "supplier": "", "cas": ""}, {"code": "RA-01-T", "name": "ACETIC ACID", "supplier": "롯데이네오스화학", "cas": "64-19-7"}, {"code": "RA-02", "name": "ACETOIN", "supplier": "LLUCH", "cas": "513-86-0"}, {"code": "RA-02-01", "name": "ACETOIN", "supplier": "LLUCH", "cas": "513-86-0"}, {"code": "RA-03", "name": "ACETOL", "supplier": "PENTA", "cas": "116-09-6"}, {"code": "RA-04", "name": "ACETOL ACETATE", "supplier": "", "cas": "592-20-1"}, {"code": "RA-05-T", "name": "ALLYL HEXANOATE(ALLYL CAPROATE)", "supplier": "YANCHENG", "cas": "123-68-2"}, {"code": "RA-06", "name": "ALLYL HEPTYLATE(Heptanoate)", "supplier": "Yancheng", "cas": "142-19-8"}, {"code": "RA-07", "name": "ALLYL NONYLATE", "supplier": "", "cas": "7493-72-3"}, {"code": "RA-08-T", "name": "TRANS-ANETHOLE", "supplier": "symrise", "cas": "4180-23-8"}, {"code": "RA-09-T", "name": "P-ANIS ALDEHYDE", "supplier": "MOELLHAUSEN", "cas": "123-11-5"}, {"code": "RA-10", "name": "ANISE KEOTNE", "supplier": "", "cas": "122-84-9"}, {"code": "RA-11", "name": "2-ACETYL-3-METHYL THIOPHENE", "supplier": "", "cas": "13679-72-6"}, {"code": "RA-12", "name": "ACETALDEHYDE 50% ETOH", "supplier": "PENTA", "cas": "75-07-0"}, {"code": "RA-13-T", "name": "AMYL ACETATE", "supplier": "LLUCH", "cas": "628-63-7"}, {"code": "RA-14-T", "name": "ACETOPHENONE", "supplier": "MOELLHAUSEN", "cas": "98-86-2"}, {"code": "RA-15", "name": "2-ACETYL FURAN", "supplier": "PENTA", "cas": "1192-62-7"}, {"code": "RA-16", "name": "ALLYL ALCOHOL", "supplier": "", "cas": "107-18-6"}, {"code": "RA-17", "name": "AMYL CAPROATE", "supplier": "GRAU", "cas": "540-07-8"}, {"code": "RA-19", "name": "ALLYL AMYL GLYCOLATE (ALLYL 3-METHYLBUTOXY ACETATE)", "supplier": "SHANGHAI LUCKYSEA", "cas": "67634-00-8"}, {"code": "RA-20", "name": "ALDEHYDE MBDC PURE (LILIAL, LYSMERAL)", "supplier": "MOELLHAUSEN", "cas": "80-54-6"}, {"code": "RA-21", "name": "ACETALDEHYDE PGA", "supplier": "INOUE", "cas": "3390-12-3"}, {"code": "RA-22", "name": "ACETALDEHYDE DEA (ACETAL)", "supplier": "PENTA", "cas": "105-57-7"}, {"code": "RA-23-T", "name": "2-ACETYLPYRAZINE", "supplier": "SHANDONG TIANXIANG", "cas": "22047-25-2"}, {"code": "RA-24", "name": "ALDEHYDE C-11 UNDECYLENIC(10-UNDECENAL)", "supplier": "LLUCH", "cas": "112-45-8"}, {"code": "RA-25", "name": "ALDEHYDE C-11 UNDECYLIC(UNDECANAL)", "supplier": "PENTA", "cas": "112-44-7"}, {"code": "RA-26", "name": "ALDEHYDE C-12 LAURIC(DODECANAL)", "supplier": "LLUCH", "cas": "112-54-9"}, {"code": "RA-27", "name": "ALDEHYDE C-12 MNA(2-METHYL UNDECANAL)", "supplier": "LLUCH", "cas": "110-41-8"}, {"code": "RA-28-01-T", "name": "ALDEHYDE C-16 (ETHYL METHYLPHENYLGLYCIDATE)", "supplier": "MOELLLHAUSEN", "cas": "77-83-8"}, {"code": "RA-28-T", "name": "ALDEHYDE C-16 (E.M.P.GLYCIDATE) [CA19150EXT]", "supplier": "C&A", "cas": "77-83-8"}, {"code": "RA-29", "name": "ALLYL CYCLOHEXYLPROPIONATE", "supplier": "MOELLHAUSEN", "cas": "2705-87-5"}, {"code": "RA-30", "name": "AMBRETTOLIDE", "supplier": "", "cas": "7779-50-2"}, {"code": "RA-31", "name": "ALPHA AMYL CINNAMIC ALDEHYDE", "supplier": "", "cas": "122-40-7"}, {"code": "RA-32", "name": "AMYL SALICYLATE", "supplier": "", "cas": "2050-08-0"}, {"code": "RA-33", "name": "ACETAL R (RESEDOFOL)", "supplier": "", "cas": "7493-57-4"}, {"code": "RA-34", "name": "AMBER CORE", "supplier": "", "cas": "139504-68-0"}, {"code": "RA-35-T", "name": "ANISYL ACETATE", "supplier": "", "cas": "104-21-2"}, {"code": "RA-36", "name": "AURANTIOL", "supplier": "", "cas": "89-43-0"}, {"code": "RA-37-T", "name": "ACETANISOLE", "supplier": "PENTA", "cas": "100-06-1"}, {"code": "RA-38", "name": "ALPHA-ALLYL IONONE (CETON V)", "supplier": "", "cas": "79-78-7"}, {"code": "RA-39", "name": "AMBERWOOD FORTE (BOISAMBRENE)", "supplier": "", "cas": ""}, {"code": "RA-40", "name": "AMYL BUTYRATE", "supplier": "LLUCH", "cas": "540-18-1"}, {"code": "RA-41-T", "name": "AMBROXAN (AMBERMOR)", "supplier": "LLUCH", "cas": "6790-58-5"}, {"code": "RA-42", "name": "2-ACETYLPYRIDINE", "supplier": "KE-25318", "cas": "1122-62-9"}, {"code": "RA-43", "name": "ACETYL PROPIONYL", "supplier": "GRAU", "cas": "600-14-6"}, {"code": "RA-44-T", "name": "2-ACETYL THIAZOLE", "supplier": "SHANDONG TIANXIANG", "cas": "24295-03-2"}, {"code": "RA-45", "name": "AMYL VALERATE", "supplier": "", "cas": "2173-56-0"}, {"code": "RA-46-T", "name": "PARA-ANISYL ALCOHOL", "supplier": "LLUCH", "cas": "105-13-5"}, {"code": "RA-47", "name": "3-ACETYL PYRIDINE", "supplier": "", "cas": "350-03-8"}, {"code": "RA-48", "name": "ALLYL PROPIONATE", "supplier": "", "cas": "2408-20-0"}, {"code": "RA-49", "name": "ALLYL PHENOXY ACETATE", "supplier": "", "cas": "7493-74-5"}, {"code": "RA-50", "name": "AMYL PROPIONATE", "supplier": "", "cas": "624-54-4"}, {"code": "RA-51", "name": "ALLYL OCTANOATE", "supplier": "", "cas": "4230-97-1"}, {"code": "RA-52", "name": "ACETOIN PGA", "supplier": "", "cas": "94089-23-3"}, {"code": "RA-53", "name": "AMBROX (AMBROXIDE)", "supplier": "", "cas": "65588-69-4"}, {"code": "RA-54-T", "name": "2-ACETYLPYRROLE", "supplier": "shandong tianxiang", "cas": "1072-83-9"}, {"code": "RA-55", "name": "ALLYL BUTYRATE", "supplier": "", "cas": "2051-78-7"}, {"code": "RA-56-T", "name": "ALPHA-ANGELICA LACTONE", "supplier": "", "cas": "591-12-8"}, {"code": "RA-57", "name": "ALLYL ISOTHIOCYANATE (BESTALLY)", "supplier": "", "cas": "57-06-7"}, {"code": "RA-58", "name": "ACRYLIC ACID (ONLY SAMPLE)", "supplier": "", "cas": "79-10-7"}, {"code": "RA-59", "name": "2-ACETYL-3-METHYL PYRAZINE (penta)", "supplier": "", "cas": "23787-80-6"}, {"code": "RA-60", "name": "8-(ACETYL THIO) MENTHONE (코드만)", "supplier": "", "cas": "94293-57-9"}, {"code": "RA-61", "name": "4-Acetoxy-2,5-Dimethyl-3(2H) Furanone", "supplier": "", "cas": "4166-20-5"}, {"code": "RB-01-T", "name": "BENZALDEHYDE", "supplier": "MOELLHAUSEN", "cas": "100-52-7"}, {"code": "RB-02", "name": "BENZOIC ACID", "supplier": "PENTA", "cas": "65-85-0"}, {"code": "RB-03", "name": "BENZOPHENONE", "supplier": "", "cas": "119-61-9"}, {"code": "RB-04", "name": "BENZYL ACETATE", "supplier": "LLUCH", "cas": "140-11-4"}, {"code": "RB-05-01-T", "name": "BENZYL ALCOHOL", "supplier": "TIANJIN DACAL", "cas": "100-51-6"}, {"code": "RB-05-T", "name": "BENZYL ALCOHOL", "supplier": "MOELLHAUSEN", "cas": "100-51-6"}, {"code": "RB-06-T", "name": "BENZYL BENZOATE", "supplier": "HANGZHOU BETTER CHEMTECH", "cas": "120-51-4"}, {"code": "RB-07", "name": "BENZYL BUTYRATE", "supplier": "PENTA", "cas": "103-37-7"}, {"code": "RB-08", "name": "BENZYL PROPIONATE", "supplier": "PENTA", "cas": "122-63-4"}, {"code": "RB-09", "name": "BUTYL BUTYRATE", "supplier": "PENTA", "cas": "109-21-7"}, {"code": "RB-10", "name": "BUTYL PROPIONATE", "supplier": "", "cas": "590-01-2"}, {"code": "RB-11-T", "name": "BUTYRIC ACID", "supplier": "LLUCH", "cas": "107-92-6"}, {"code": "RB-12-T", "name": "BUTYL ACETATE", "supplier": "LLUCH(바)", "cas": "123-86-4"}, {"code": "RB-13", "name": "BUTANOL(BUTYL ALCOHOL)", "supplier": "LLUCH(바한)", "cas": "71-36-3"}, {"code": "RB-13-01", "name": "BUTANOL", "supplier": "", "cas": "71-36-3"}, {"code": "RB-14", "name": "BENZYL SALICYLATE", "supplier": "LLUCH", "cas": "118-58-1"}, {"code": "RB-15", "name": "BENZALDEHYDE PGA", "supplier": "INOUE", "cas": "2568-25-4"}, {"code": "RB-16", "name": "BUTYL ISOVALERATE", "supplier": "PENTA", "cas": "109-19-3"}, {"code": "RB-17", "name": "BUTYL ISOBUTYRATE", "supplier": "", "cas": "97-87-0"}, {"code": "RB-18", "name": "BUTYL ALDEHYDE (BUTANAL)", "supplier": "INOUE", "cas": "123-72-8"}, {"code": "RB-20", "name": "BACDANOL(BANGALOL)", "supplier": "", "cas": "28219-61-6"}, {"code": "RB-21", "name": "BENZYL CINNAMATE", "supplier": "MOELLHAUSEN", "cas": "103-41-3"}, {"code": "RB-22", "name": "BENZYL ISOBUTYRATE", "supplier": "", "cas": "103-28-6"}, {"code": "RB-23-T", "name": "BUTYL BUTYRYL LACTATE", "supplier": "PENTA", "cas": "7492-70-8"}, {"code": "RB-24", "name": "BOURGEONAL", "supplier": "", "cas": ""}, {"code": "RB-25", "name": "BENZYL PHENYL ACETATE", "supplier": "", "cas": "102-16-9"}, {"code": "RB-26", "name": "BENZYL ISOVALERATE", "supplier": "", "cas": "103-38-8"}, {"code": "RB-27", "name": "BENZYL OCTANOATE (CAPRYLATE)", "supplier": "INOUE", "cas": "10276-85-4"}, {"code": "RB-28", "name": "TERT-BUTANOL", "supplier": "", "cas": "75-65-0"}, {"code": "RB-29", "name": "BORNEOL", "supplier": "LLUCH", "cas": "507-70-0"}, {"code": "RB-30", "name": "BENZYL 2-METHYL BUTYRATE", "supplier": "", "cas": "56423-40-6"}, {"code": "RB-33", "name": "BENZYL VALERATE", "supplier": "", "cas": "10361-39-4"}, {"code": "RB-34", "name": "BENZYL LACTATE", "supplier": "", "cas": "2051-96-9"}, {"code": "RB-35", "name": "BUTYL-2-METHYL BUTYRATE", "supplier": "", "cas": "15706-73-7"}, {"code": "RB-36", "name": "BUTYL CAPROATE(HEXANOATE)", "supplier": "", "cas": "626-82-4"}, {"code": "RB-37", "name": "BENZYL FORMATE", "supplier": "PENTA", "cas": "104-57-4"}, {"code": "RB-38", "name": "BENZYLIDINE ACETONE", "supplier": "", "cas": "122-75-6"}, {"code": "RB-39", "name": "2-BUTANONE (METHYL ETHYL KETONE)", "supplier": "", "cas": "78-93-3"}, {"code": "RB-40", "name": "BUTYL FORMATE", "supplier": "", "cas": "592-84-7"}, {"code": "RB-41", "name": "BUTYL LACTATE", "supplier": "", "cas": "138-22-7"}, {"code": "RB-42", "name": "BENZOTHIAZOLE", "supplier": "", "cas": "95-16-9"}, {"code": "RB-43", "name": "GAMMA-BUTYROLACTONE", "supplier": "", "cas": "96-48-0"}, {"code": "RB-44", "name": "BUTYL UNDECYLENATE (BUTYL UNEDECENOATE) (INOUE)", "supplier": "", "cas": "109-42-2"}, {"code": "RB-45", "name": "BEES WAX", "supplier": "", "cas": ""}, {"code": "RB-46", "name": "TRANS-ALPHA BERGAMOTENE (코드만)", "supplier": "", "cas": "13474-59-4"}, {"code": "RB-47", "name": "BETA-BISABOLENE (코드만)", "supplier": "", "cas": "495-61-4"}, {"code": "RB-48", "name": "ALPHA-BISABOLOL", "supplier": "", "cas": "515-69-5"}, {"code": "RB-49", "name": "BICYCLOGERMACRENE (코드만)", "supplier": "", "cas": "24703-35-3"}, {"code": "RC-01", "name": "CAMPHOR", "supplier": "MOELLHAUSEN", "cas": "21368-68-3"}, {"code": "RC-02", "name": "L-CARVONE", "supplier": "SYMRISE", "cas": "6485-40-1"}, {"code": "RC-02-01", "name": "L-CARVONE", "supplier": "", "cas": "6485-40-1"}, {"code": "RC-03-T", "name": "BETA CARYOPHYLLENE 95%", "supplier": "MOLLEHAUSEN", "cas": "87-44-5"}, {"code": "RC-04-T", "name": "CARYOPHYLLENE OXIDE(AMBAR CRYSTAL)", "supplier": "LLUCH(바)", "cas": "1139-30-6"}, {"code": "RC-05-T", "name": "CITRAL", "supplier": "Privi Speciality chem.", "cas": "5392-40-5"}, {"code": "RC-06", "name": "CITRONELLAL", "supplier": "MOELLHAUSEN", "cas": "106-23-0"}, {"code": "RC-07", "name": "CITRONELLOL", "supplier": "LLUCH", "cas": "106-22-9"}, {"code": "RC-08", "name": "CITRONELLYL ACETATE", "supplier": "MOELLHAUSEN", "cas": "150-84-5"}, {"code": "RC-09", "name": "CITRONELLYL HEXANOATE", "supplier": "", "cas": "10580-25-3"}, {"code": "RC-10", "name": "CITRONELLYL DECANOATE", "supplier": "", "cas": "72934-06-6"}, {"code": "RC-11", "name": "CAMPHENE", "supplier": "", "cas": "79-92-5"}, {"code": "RC-12-01-T", "name": "CINNAMIC ALDEHYDE", "supplier": "VENTOS", "cas": "104-55-2"}, {"code": "RC-12-02", "name": "CINNAMIC ALDEHYDE FCC [CA12286]", "supplier": "C&A", "cas": "104-55-2"}, {"code": "RC-12-T", "name": "CINNAMIC ALDEHYDE", "supplier": "PENTA", "cas": "104-55-2"}, {"code": "RC-13", "name": "DELTA-3-CARENE", "supplier": "MOELLHAUSEN", "cas": "13466-78-9"}, {"code": "RC-14", "name": "CIS-CARVEOL", "supplier": "PENTA", "cas": "99-48-9"}, {"code": "RC-15", "name": "P-CYMENE", "supplier": "MOELLHAUSEN-->LLUCH(25.12)", "cas": "99-87-6"}, {"code": "RC-16", "name": "CYCLAMEN ALDEHYDE", "supplier": "MOELLHAUSEN", "cas": "103-95-7"}, {"code": "RC-16-01", "name": "CYCLAMEN ALDEHYDE", "supplier": "GIVAUDAN/HA-BC16397", "cas": "103-95-7"}, {"code": "RC-17", "name": "CINNAMYL ACETATE", "supplier": "MOELLHAUSEN", "cas": "103-54-8"}, {"code": "RC-18", "name": "CIS-3-HEXENYL SALICYLATE", "supplier": "SHANGHAI LUCKYSEA", "cas": "65405-77-8"}, {"code": "RC-19", "name": "CEDRAMBER (CEDRYL METHYL ETHER)", "supplier": "MOELLHAUSEN", "cas": "19870-74-7"}, {"code": "RC-20", "name": "CARBITOL", "supplier": "", "cas": "111-90-0"}, {"code": "RC-21-T", "name": "CINNAMIC ALCOHOL", "supplier": "MOELLHAUSEN", "cas": "104-54-1"}, {"code": "RC-22", "name": "CINNAMYL ISOBUTYRATE", "supplier": "", "cas": "103-59-3"}, {"code": "RC-23", "name": "CASHMERAN", "supplier": "", "cas": ""}, {"code": "RC-24", "name": "CALONE", "supplier": "", "cas": ""}, {"code": "RC-25", "name": "CETALOX", "supplier": "", "cas": ""}, {"code": "RC-26", "name": "CEDRENOL", "supplier": "", "cas": ""}, {"code": "RC-27", "name": "CEDRYL ACETATE", "supplier": "", "cas": ""}, {"code": "RC-28", "name": "CANTHOXAL", "supplier": "", "cas": ""}, {"code": "RC-29", "name": "CEDROL", "supplier": "", "cas": "77-53-2"}, {"code": "RC-30", "name": "CEDRAMBER (CEDRYL METHYL ETHER)", "supplier": "", "cas": ""}, {"code": "RC-31", "name": "CARAMEL FURANONE", "supplier": "", "cas": "28664-35-9"}, {"code": "RC-32", "name": "CITRONELLY FORMATE", "supplier": "", "cas": ""}, {"code": "RC-33", "name": "COUMARINE", "supplier": "", "cas": "91-64-5"}, {"code": "RC-34", "name": "CITRONELLYL NITRILE", "supplier": "", "cas": ""}, {"code": "RC-35", "name": "CITRONELLYL ISOBUTYRATE EXTRA [CA12313]", "supplier": "C&A", "cas": "97-89-2"}, {"code": "RC-36", "name": "1,4-CINEOLE", "supplier": "PENTA", "cas": "470-67-7"}, {"code": "RC-37", "name": "CITRAL PGA", "supplier": "", "cas": "10444-50-5"}, {"code": "RC-38", "name": "CARYOPHELENE BETA [CA12252]", "supplier": "C&A", "cas": "87-44-5"}, {"code": "RC-39", "name": "CYCLOHEXYL SALICYLATE", "supplier": "UNITED EX.", "cas": "25485-88-5"}, {"code": "RC-40", "name": "P-CRESOL", "supplier": "", "cas": "106-44-5"}, {"code": "RC-41", "name": "CAFFEIN", "supplier": "", "cas": "58-08-2"}, {"code": "RC-43", "name": "CYCLOHEXYL ACETATE", "supplier": "", "cas": "622-45-7"}, {"code": "RC-44", "name": "CYCLOHEXYL BUTYRATE", "supplier": "", "cas": "1551-44-6"}, {"code": "RC-45", "name": "O-CRESOL", "supplier": "", "cas": "95-48-7"}, {"code": "RC-46", "name": "CITRONELLYL PROPIONATE", "supplier": "", "cas": "141-14-0"}, {"code": "RC-47", "name": "CITRONELLYL BUTYRATE", "supplier": "PENTA", "cas": "141-16-2"}, {"code": "RC-48", "name": "CINNAMIC ACID", "supplier": "", "cas": "621-82-9"}, {"code": "RC-49", "name": "CELERY KETONE", "supplier": "", "cas": "3720-16-9"}, {"code": "RC-50-T", "name": "CITRIC ACID (구연산)", "supplier": "", "cas": "5949-29-1"}, {"code": "RC-51", "name": "CUMIN ALDEHYDE (MOELLHAUSEN)", "supplier": "", "cas": "122-03-2"}, {"code": "RC-52", "name": "CITRONELLYL FORMATE", "supplier": "MOELLHAUSEN", "cas": "105-85-1"}, {"code": "RC-53", "name": "CYCLOHEXYL ISOVALERATE (코드만)", "supplier": "", "cas": "7774-44-9"}, {"code": "RC-54", "name": "CINNAMYL PROPIONATE (코드만)", "supplier": "", "cas": "103-56-0"}, {"code": "RC-55", "name": "CITRUS TERPENE", "supplier": "한빛향료", "cas": "8028-48-6"}, {"code": "RC-56", "name": "CANOLA OIL", "supplier": "", "cas": ""}, {"code": "RC-57", "name": "DELTA-CADINENE (코드만)", "supplier": "", "cas": "483-76-1"}, {"code": "RC-58", "name": "CIS-DIHYDRO CARVONE (코드만)", "supplier": "", "cas": "3792-53-8"}, {"code": "RC-59", "name": "CIS-CARVYL ACETATE (코드만)", "supplier": "", "cas": "97-42-7"}, {"code": "RC-60", "name": "CITROXIDE (코드만)", "supplier": "", "cas": "7146-35-5"}, {"code": "RC-61", "name": "CARVENONE (코드만)", "supplier": "", "cas": "499-74-1"}, {"code": "RC-62", "name": "NERAL CITRAL-1 (코드만)", "supplier": "", "cas": "102-26-3"}, {"code": "RC-63", "name": "GERANIAL CITRAL-2 (코드만)", "supplier": "", "cas": "141-27-5"}, {"code": "RC-64", "name": "TRANS-CARVEOL (코드만)", "supplier": "", "cas": "1197-07-5"}, {"code": "RC-65", "name": "TRANS-DIHYDRO CARVONE (코드만)", "supplier": "", "cas": "5948-04-9"}, {"code": "RC-66", "name": "NEO DIHYDRO CARVEOL (코드만)", "supplier": "", "cas": "18675-33-7"}, {"code": "RC-67", "name": "TRANS-CARVYL ACETATE (코드만)", "supplier": "", "cas": "1134-95-8"}, {"code": "RC-68", "name": "ALPHA-COPAENE (코드만)", "supplier": "", "cas": "3856-25-5"}, {"code": "RC-69", "name": "ALPHA-CUBEBENE (코드만)", "supplier": "", "cas": "17699-14-8"}, {"code": "RC-70", "name": "BETA-CUBEBENE (코드만)", "supplier": "", "cas": "13744-15-5"}, {"code": "RC-71", "name": "GAMMA-CADINENE (코드만)", "supplier": "", "cas": "1460-97-5"}, {"code": "RC-72", "name": "CALAMENE (코드만)", "supplier": "", "cas": "1406-50-4"}, {"code": "RC-73", "name": "ALPHA-CADINOL (코드만)", "supplier": "", "cas": "481-34-5"}, {"code": "RC-74", "name": "CITRONELLIC ACID (코드만)", "supplier": "", "cas": "502-47-6"}, {"code": "RC-75", "name": "CAROTOL (코드만)", "supplier": "", "cas": "465-28-1"}, {"code": "RC-76", "name": "ALPHA-CURCUMENE (코드만)", "supplier": "", "cas": "644-30-4"}, {"code": "RD-01-T", "name": "DAMASCENONE", "supplier": "LLUCH(바)", "cas": "신규 23696-85-7(기존 23726-93-4)"}, {"code": "RD-02-T", "name": "BETA-DAMASCONE", "supplier": "HANGZHOU GRASCENT", "cas": "23726-91-2"}, {"code": "RD-03", "name": "ALPHA-DAMASCONE", "supplier": "MOELLHAUSEN", "cas": "24720-09-0"}, {"code": "RD-04-01-T", "name": "GAMMA-DECALACTONE", "supplier": "Anhui Hyea", "cas": "706-14-9"}, {"code": "RD-04-T", "name": "GAMMA-DECALACTONE", "supplier": "", "cas": "706-14-9"}, {"code": "RD-05-01-T", "name": "ALDEHYDE C-10 FCC (DECANAL) [CA12362EXT]", "supplier": "C&A", "cas": "112-31-2"}, {"code": "RD-05-T", "name": "DECANAL (ALD C-10)", "supplier": "MOELLHAUSEN", "cas": "112-31-2"}, {"code": "RD-06-T", "name": "DECANOIC ACID (CAPRIC ACID)", "supplier": "PENTA", "cas": "334-48-5"}, {"code": "RD-07", "name": "DIACETYL", "supplier": "", "cas": "431-03-8"}, {"code": "RD-07-01", "name": "DIACETYL", "supplier": "MAELLHAUSEN", "cas": "431-03-8"}, {"code": "RD-08", "name": "DIETHYL SUCCINATE", "supplier": "", "cas": "123-25-1"}, {"code": "RD-09", "name": "DIMETHYL SUCCINATE", "supplier": "", "cas": "106-65-0"}, {"code": "RD-10", "name": "DIMETHYL DISULFIDE", "supplier": "PENTA", "cas": "624-92-0"}, {"code": "RD-11", "name": "DIMETHYL SULFOXIDE", "supplier": "PENTA", "cas": "67-68-5"}, {"code": "RD-12", "name": "DELTA-DMASCONE", "supplier": "", "cas": ""}, {"code": "RD-13", "name": "DODECANOL (LAURYL ALCOHOL) (C-12)", "supplier": "", "cas": "112-53-8"}, {"code": "RD-14-01-T", "name": "DELTA-DECALACTONE [CA12361]", "supplier": "C&A", "cas": "705-86-2"}, {"code": "RD-14-T", "name": "DELTA-DECALACTONE", "supplier": "LLUCH", "cas": "705-86-2"}, {"code": "RD-15", "name": "GAMMA-DODECALACTONE", "supplier": "ACS", "cas": "2305-05-7"}, {"code": "RD-16", "name": "DELTA-DAMASCONE", "supplier": "LLUCH", "cas": "57378-68-4"}, {"code": "RD-17-T", "name": "DIETHYL MALONATE", "supplier": "LLUCH", "cas": "105-53-3"}, {"code": "RD-18-T", "name": "2,5-DIMETHYL PYRAZINE", "supplier": "TEGNZHOU", "cas": "123-32-0"}, {"code": "RD-19", "name": "2,3-DIMETHYL PYRAZINE", "supplier": "MOELLHAUSEN", "cas": "5910-89-4"}, {"code": "RD-20", "name": "DIMETHYL SULFIDE", "supplier": "FRUTAROME(IFF)", "cas": "75-18-3"}, {"code": "RD-21", "name": "2-DECANONE(METHYL OCTYL KETONE)", "supplier": "", "cas": ""}, {"code": "RD-22", "name": "DMBCA(DIMETHYL BENZYL CARBINYL ACETATE)", "supplier": "YINGHAI", "cas": "151-05-3"}, {"code": "RD-23", "name": "DIMETOL", "supplier": "", "cas": "13254-34-7"}, {"code": "RD-24", "name": "DIHYDROMYRCENOL (FLORALYM)", "supplier": "", "cas": "18479-58-8"}, {"code": "RD-25", "name": "DIMETHYL PHENYL ETHYL CARBINOL (MUGUET CARBINOL)", "supplier": "", "cas": "103-05-9"}, {"code": "RD-26", "name": "DIPROPYLENE GLYCOL (DPG)", "supplier": "", "cas": ""}, {"code": "RD-27-T", "name": "DIMETHYL HYDROQUINONE", "supplier": "", "cas": "150-78-7"}, {"code": "RD-28", "name": "DIMETHYL BENZYL CARBINOL (DMBC)", "supplier": "LLUCH", "cas": "100-86-7"}, {"code": "RD-29", "name": "DPG(DIPROPYLENE GLYCOL)", "supplier": "", "cas": "25265-71-8"}, {"code": "RD-30", "name": "DPM(DIPROPYLENE GLYCOL METHYL ETHER)", "supplier": "", "cas": "34590-94-8"}, {"code": "RD-31-T", "name": "DELTA-DODECALACTONE [CA12401]", "supplier": "C&A", "cas": "713-95-1"}, {"code": "RD-32", "name": "DMBCB(DIMETHYL BENZYL CARBINYL BUTYRATE)", "supplier": "LLUCH", "cas": "10094-34-5"}, {"code": "RD-33", "name": "TRANS-2-DECENAL", "supplier": "INOUE", "cas": "3913-81-3"}, {"code": "RD-34", "name": "DIMETHYL ANTHRANILATE", "supplier": "MOELLHAUSEN", "cas": "85-91-6"}, {"code": "RD-35", "name": "DECYL ACETATE", "supplier": "", "cas": "112-17-4"}, {"code": "RD-36", "name": "T-2-T-4-DECADIENAL", "supplier": "", "cas": "25152-84-5"}, {"code": "RD-37", "name": "ALPHA-DAMASCONE", "supplier": "MOELLHAUSEN", "cas": "43052-87-5"}, {"code": "RD-38", "name": "DIPHENYL OXIDE", "supplier": "", "cas": "101-84-8"}, {"code": "RD-39", "name": "DIETHYL SEBACATE", "supplier": "", "cas": "110-40-7"}, {"code": "RD-40-T", "name": "2,6-DIMETHOXY PHENOL", "supplier": "PENTA", "cas": "91-10-1"}, {"code": "RD-41", "name": "1,3-DIMETHOXY BENZENE", "supplier": "PENTA", "cas": "151-10-0"}, {"code": "RD-42", "name": "DIMETHYL OCTANO(Tetra Hydro Geraniol) [CA12391]", "supplier": "C&A", "cas": "0"}, {"code": "RD-43", "name": "DIHYDROXYACETONE", "supplier": "", "cas": "96-26-4"}, {"code": "RD-44", "name": "DIMETHYL DISULFIDE", "supplier": "", "cas": "624-92-0"}, {"code": "RD-45", "name": "2,3-DIMETHYL PYRAZINE", "supplier": "", "cas": "5910-89-4"}, {"code": "RD-46", "name": "2-METHOXY-4-VINYL PHENOL 50% PG (4-VINYL GUAIACOL)", "supplier": "ACS", "cas": "7786-61-0"}, {"code": "RD-47", "name": "P-ALPHA-DIMETHYL STYRENE", "supplier": "PENTA", "cas": "1195-32-0"}, {"code": "RD-48", "name": "t-2-t-4-DECADIENAL (BESTALLY)", "supplier": "", "cas": "25152-84-5"}, {"code": "RD-49", "name": "DELTA-DECENOLACTONE (MASSOIA LACATONE)", "supplier": "", "cas": "54814-64-1"}, {"code": "RD-51", "name": "DIHYDRO LINALOOL (MOELL)", "supplier": "", "cas": ""}, {"code": "RD-52", "name": "DIETHYL MALATE", "supplier": "", "cas": "626-11-9"}, {"code": "RD-53-T", "name": "DIETHYL MALONATE", "supplier": "", "cas": "105-53-3"}, {"code": "RD-54", "name": "DIHYDROCOUMARIN", "supplier": "", "cas": "119-84-6"}, {"code": "RD-55", "name": "DIMETHYL OCTANOL", "supplier": "", "cas": "106-21-8"}, {"code": "RD-56", "name": "DIOCTYL ADIPATE", "supplier": "", "cas": "123-79-5"}, {"code": "RD-57", "name": "2,6-DIMETHYL PYRAZINE", "supplier": "", "cas": "108-50-9"}, {"code": "RD-58", "name": "2,3-DIETHYL PYRAZINE", "supplier": "", "cas": "15707-24-1"}, {"code": "RD-59", "name": "DIETHYL TARTRATE (PENTA)", "supplier": "", "cas": "87-91-2"}, {"code": "RD-60", "name": "2,3-DIETHYL-5-METHYL PYRAZINE (PENTA)", "supplier": "", "cas": "18138-04-0"}, {"code": "RD-61", "name": "DIFURFURYL DISULFIDE (=COFFEE DIFURAN) (PENTA)", "supplier": "", "cas": "4437-20-1"}, {"code": "RD-62", "name": "DIMETHYL TRISULFIDE (PENTA)", "supplier": "", "cas": "3658-80-8"}, {"code": "RD-63", "name": "DIPHENYL METHANE (LLUCH)", "supplier": "", "cas": "101-81-5"}, {"code": "RD-64", "name": "DYNASCONE 939745", "supplier": "FIRMENICH", "cas": "56973-85-4"}, {"code": "RD-65", "name": "2,4-DIMETHYL-3-PENTANONE98%(136867) (DIISOPROPYL KETONE)", "supplier": "SIGMA ALDRICH", "cas": "565-80-0"}, {"code": "RD-69", "name": "DIPROPYL DISULFIDE", "supplier": "PENTA", "cas": ""}, {"code": "RD-71", "name": "DIHYDROCARVYL ACETATE (코드만)", "supplier": "", "cas": "20777-495"}, {"code": "RD-72", "name": "DIHYDROCARVEOL", "supplier": "", "cas": "619-01-2"}, {"code": "RD-73", "name": "DIOSPHENOL (코드만)", "supplier": "", "cas": "490-03-9"}, {"code": "RD-74", "name": "DIMYRCENE (코드만)", "supplier": "", "cas": "855126-75-9"}, {"code": "RD-75", "name": "DAVANONE (코드만)", "supplier": "", "cas": "20482-11-5"}, {"code": "RD-76", "name": "DAUCENE (코드만)", "supplier": "", "cas": "16661-00-0"}, {"code": "RD-77", "name": "DAUCOL (코드만)", "supplier": "", "cas": "887-08-1"}, {"code": "RE-01-01-T", "name": "ETHYL BUTYRATE", "supplier": "Yancheng(china)", "cas": "105-54-4"}, {"code": "RE-01-T", "name": "ETHYL BUTYRATE", "supplier": "MOELLHAUSEN", "cas": "105-54-4"}, {"code": "RE-02-T", "name": "ETHYL CAPRATE (ETHYL DECANOATE)", "supplier": "PENTA", "cas": "110-38-3"}, {"code": "RE-03-01-T", "name": "ETHYL CAPROATE (ETHYL HEXANOATE)", "supplier": "VENTOS", "cas": "123-66-0"}, {"code": "RE-03-T", "name": "ETHYL CAPROATE (ETHYL HEXANOATE)", "supplier": "", "cas": "123-66-0"}, {"code": "RE-04-T", "name": "ETHYL CAPRYLATE (ETHYL OCTANOATE)", "supplier": "PENTA", "cas": "106-32-1"}, {"code": "RE-05", "name": "ETHYL HEPTYLATE (ETHYL HEPTANOATE)", "supplier": "MOELLHAUSEN", "cas": "106-30-9"}, {"code": "RE-06-01-T", "name": "ETHYL ISOVALERATE", "supplier": "MOLLHAUSEN/CORE(HA-BC14030)", "cas": "108-64-5"}, {"code": "RE-06-02-T", "name": "ETHYL ISOVALERATE", "supplier": "YANCHENG", "cas": "108-64-5"}, {"code": "RE-06-T", "name": "ETHYL ISOVALERATE", "supplier": "", "cas": "108-64-5"}, {"code": "RE-07", "name": "ETHYL VALERATE", "supplier": "PENTA", "cas": "539-82-2"}, {"code": "RE-08-01-T", "name": "ETHYL-2-METHYL-BUTYRATE CA12443", "supplier": "C&A", "cas": "7452-79-1"}, {"code": "RE-08-02-T", "name": "ETHYL-2-METHYL BUTYRATE", "supplier": "FARWELL, 181026-1-20", "cas": "7452-79-1"}, {"code": "RE-09", "name": "ETHYL-T-2-HEXENOATE", "supplier": "PENTA", "cas": "27829-72-7"}, {"code": "RE-10-T", "name": "EUCALYPTOL (1,8-CINEOLE)", "supplier": "DOINGCOM", "cas": "470-82-6"}, {"code": "RE-11-01-T", "name": "ETHYL MALTOL", "supplier": "CORE/BESTALLY", "cas": "4940-11-8"}, {"code": "RE-11-T", "name": "ETHYL MALTOL", "supplier": "BESTALLY", "cas": "4940-11-8"}, {"code": "RE-12", "name": "ETHYL ACETOACETATE", "supplier": "MOELLHAUSEN", "cas": "141-97-9"}, {"code": "RE-13-01-T", "name": "ETHYL PROPIONATE [CA19079]", "supplier": "C&A", "cas": "105-37-3"}, {"code": "RE-13-T", "name": "ETHYL PROPIONATE", "supplier": "", "cas": "105-37-3"}, {"code": "RE-14-T", "name": "ETHYL LACTATE", "supplier": "YANCHENG", "cas": "97-64-3"}, {"code": "RE-15-T", "name": "ETHYL CINNAMATE", "supplier": "CROWN CAPITAL(CHINA)", "cas": "103-36-6"}, {"code": "RE-16-T", "name": "ETHYL ACETATE(사용x)", "supplier": "LLUCH", "cas": "141-78-6"}, {"code": "RE-17-T", "name": "ETHYL BENZOATE", "supplier": "MOELLHAUSEN", "cas": "93-89-0"}, {"code": "RE-18", "name": "EUGENOL", "supplier": "INDESSO", "cas": "97-53-0"}, {"code": "RE-18-01", "name": "EUGENOL", "supplier": "ETERIS", "cas": "97-53-0"}, {"code": "RE-19-T", "name": "ETHYL ALCOHOL (ETOH/주정95%)", "supplier": "주정판매월드(주)", "cas": "64-17-5"}, {"code": "RE-20", "name": "ETHYL LINALOOL", "supplier": "LLUCH", "cas": "10339-55-6"}, {"code": "RE-21-01", "name": "ETHYL LEVULINATE", "supplier": "CORE /PU-JIE AROMA CHEMICAL(SHANGHAI)", "cas": "539-88-8"}, {"code": "RE-21-T", "name": "ETHYL LEVULINATE", "supplier": "PENTA", "cas": "539-88-8"}, {"code": "RE-22", "name": "ETHYL PHENYL ACETATE", "supplier": "MOELLHAUSEN", "cas": "101-97-3"}, {"code": "RE-23-T", "name": "ETHYL VANILLIN", "supplier": "JIANGXI BROTHERS", "cas": "121-32-4"}, {"code": "RE-24", "name": "ESTRAGOLE", "supplier": "", "cas": "140-67-0"}, {"code": "RE-25", "name": "ETHYL MYRISTATE", "supplier": "PENTA", "cas": "124-06-1"}, {"code": "RE-26", "name": "ETHYL ISOBUTYRATE", "supplier": "LLUCH(바)", "cas": "97-62-1"}, {"code": "RE-27", "name": "2-ETHYL BUTYRIC ACID(DIETHYLACETIC ACID)", "supplier": "INOUE", "cas": "88-09-5"}, {"code": "RE-28", "name": "ETHYL CROTONATE (ETHYL-TRANS-2-BUTENOATE)", "supplier": "INOUE", "cas": "623-70-1"}, {"code": "RE-29", "name": "ETHYL LAURATE", "supplier": "PENTA", "cas": "106-33-2"}, {"code": "RE-30", "name": "ETHYL SALICYLATE", "supplier": "LLUCH", "cas": "118-61-6"}, {"code": "RE-31-T", "name": "ETHYL NONANOATE(PELAGONATE)", "supplier": "PENTA", "cas": "123-29-5"}, {"code": "RE-32", "name": "ETHYL CYCLOPENTENOLONE", "supplier": "", "cas": "21835-01-8"}, {"code": "RE-33", "name": "ETHYL ANTHRANILATE", "supplier": "", "cas": "87-25-2"}, {"code": "RE-34-T", "name": "EUGENYL ACETATE(ACETYL EUGENOL)", "supplier": "INDESSO", "cas": "93-28-7"}, {"code": "RE-36", "name": "ETHYL-2-METHYL VALERATE (Ethyl 2-methylpentanoate, MANZANATE)", "supplier": "", "cas": "39255-32-8"}, {"code": "RE-37", "name": "ETHYL PYRUVATE", "supplier": "SIGMA-ALDRICHA(도터라인)", "cas": "617-35-6"}, {"code": "RE-38-M1", "name": "2-ETHYL-3-METHYL PYRAZINE 1%MCT", "supplier": "", "cas": ""}, {"code": "RE-38-T", "name": "2-ETHYL-3-METHYL PYRAZINE", "supplier": "TENGZHOU TIANXIANG", "cas": "15707-23-0"}, {"code": "RE-39", "name": "ETHYL-3-METHYL THIOPROPIONATE", "supplier": "PENTA", "cas": "13327-56-5"}, {"code": "RE-40", "name": "2-ETHYL-3,5(6)-DIMETHYL PYRAZINE", "supplier": "MOELLHAUSEN", "cas": "27043-05-6"}, {"code": "RE-41-T", "name": "4-ETHYL GUAIACOL", "supplier": "", "cas": "2785-89-9"}, {"code": "RE-42-T", "name": "3-ETHYL PYRIDINE", "supplier": "PENTA", "cas": "536-78-7"}, {"code": "RE-43", "name": "ETHYL-t-3-hEXENOATE", "supplier": "", "cas": "26553-46-8"}, {"code": "RE-44", "name": "ETHYL PALMITATE", "supplier": "PENTA", "cas": "628-97-7"}, {"code": "RE-45", "name": "ETHYL OLEATE", "supplier": "PENTA", "cas": "111-62-6"}, {"code": "RE-46", "name": "ETHYL FORMATE", "supplier": "PENTA", "cas": "109-94-4"}, {"code": "RE-47", "name": "EBANOL", "supplier": "", "cas": "67801-20-1"}, {"code": "RE-48", "name": "ETHYL-3-PHENYL PROPIONATAE", "supplier": "", "cas": "2021-28-5"}, {"code": "RE-49", "name": "ETHYL TIGRATE", "supplier": "", "cas": "5837-78-5"}, {"code": "RE-50", "name": "ETHYL-3-HYDROXY CAPROATE", "supplier": "", "cas": "2305-25-1"}, {"code": "RE-51", "name": "2-ETHYL-1-HEXANOL", "supplier": "", "cas": "104-76-7"}, {"code": "RE-53", "name": "ETHYL-3-HYDROXY BUTYRATE", "supplier": "", "cas": "5405-41-4"}, {"code": "RE-54", "name": "2-ETHYL-5,6-METHYL PYRAZINE", "supplier": "", "cas": "36731-41-6"}, {"code": "RE-55", "name": "2-ETHYL PYRAZINE", "supplier": "", "cas": "13925-00-3"}, {"code": "RE-56", "name": "ETHYL-2-METHYL-3-PENTENOATE (CREZOATE, CHERRY PENTENOATE)", "supplier": "", "cas": "1617-23-8"}, {"code": "RE-57", "name": "ETHYL-2-METHYL-4-PENTENOATE (PINEAPPLE PENTENOATE)", "supplier": "", "cas": "53399-81-8"}, {"code": "RE-58", "name": "ETHYL PHENYL GLYCIDATE (ETHYL-3-PHENYL GLYCIDATE)", "supplier": "LLCH", "cas": "121-39-1"}, {"code": "RE-59", "name": "ETHYL ACRYLATE", "supplier": "", "cas": "140-88-5"}, {"code": "RE-60", "name": "ETHYL LINOLEATE (INOUE)", "supplier": "", "cas": "544-35-4"}, {"code": "RE-61", "name": "2-ETHYL-3,5-DIMETHYL PYRAZINE", "supplier": "", "cas": "27043-05-6"}, {"code": "RE-62", "name": "ETHYL PIVALATE (코드만)", "supplier": "", "cas": "3938-95-2"}, {"code": "RE-63", "name": "2-ETHYL HEXYL ACRYLATE", "supplier": "", "cas": ""}, {"code": "RE-66", "name": "BETA-ELEMENE (코드만)", "supplier": "", "cas": "33880-83-0"}, {"code": "RE-67", "name": "ALPHA-ELEMOL (코드만)", "supplier": "", "cas": "639-99-6"}, {"code": "RE-68", "name": "GAMMA-ELEMONE (코드만)", "supplier": "", "cas": "29873-99-2"}, {"code": "RE-69", "name": "ELEMICIN (코드만)", "supplier": "", "cas": "487-11-6"}, {"code": "RE-70", "name": "BETA-EUDESMOL (코드만)", "supplier": "", "cas": "473-15-4"}, {"code": "RF-01-T", "name": "FURANEOL", "supplier": "CRF-50352/BETALLY", "cas": "3658-77-3"}, {"code": "RF-02", "name": "FURFURAL", "supplier": "LLUCH", "cas": "98-01-1"}, {"code": "RF-03", "name": "FLOROL (FLOROSA)", "supplier": "", "cas": "63500-71-0"}, {"code": "RF-04", "name": "FLORALOZONEX (FLORALOZONE)", "supplier": "", "cas": "67634-15-5"}, {"code": "RF-05", "name": "FLOROPAL", "supplier": "", "cas": "5182-36-5"}, {"code": "RF-06", "name": "FURFURYL ALCOHOL", "supplier": "PENTA", "cas": "98-00-0"}, {"code": "RF-07", "name": "FURFURYL MERCAPTAN", "supplier": "MOELLHAUSEN", "cas": "98-02-2"}, {"code": "RF-08", "name": "FURFURYL THIOACETATE", "supplier": "", "cas": "13678-68-7"}, {"code": "RF-09", "name": "FURFURYL ACETATE", "supplier": "PENTA", "cas": "623-17-6"}, {"code": "RF-10", "name": "FORMIC ACID", "supplier": "", "cas": "64-18-6"}, {"code": "RF-11", "name": "FRAISTONE", "supplier": "LLUCH", "cas": "6290-17-1"}, {"code": "RF-13", "name": "FRUCTONE", "supplier": "", "cas": "6413-10-1"}, {"code": "RF-14", "name": "FARENAL (ADOXAL)", "supplier": "", "cas": "141-13-9"}, {"code": "RF-15", "name": "FARNESOL (VENTOS)", "supplier": "", "cas": "689-67-8"}, {"code": "RF-19", "name": "SAFRANAL PURE", "supplier": "TATYONN(ORGANICA)", "cas": ""}, {"code": "RF-20", "name": "ALPHA-FARNESENE (코드만)", "supplier": "", "cas": "502-61-4"}, {"code": "RF-21", "name": "ALPHA-FENCHENE (코드만)", "supplier": "", "cas": "471-84-1"}, {"code": "RF-22", "name": "D-FENCHOL (코드만)", "supplier": "", "cas": "1632-73-1"}, {"code": "RFA00759", "name": "검믹스에스디(SD)-1", "supplier": "", "cas": ""}, {"code": "RG-01-01-T", "name": "GERANIOL 98+", "supplier": "NHU", "cas": "106-24-1"}, {"code": "RG-01-02-T", "name": "GERANIOL 98%", "supplier": "NHU", "cas": "106-24-1"}, {"code": "RG-01-T", "name": "GERANIOL", "supplier": "SYMRISE", "cas": "106-24-1"}, {"code": "RG-02-T", "name": "GERANYL ACETATE", "supplier": "MOELLHAUSEN", "cas": "105-87-3"}, {"code": "RG-03", "name": "GERANYL BUTYRATE", "supplier": "", "cas": "106-29-6"}, {"code": "RG-03-01", "name": "GERANYL BUTYRATE EXTRA [CA52512]", "supplier": "C&A", "cas": "106-29-6"}, {"code": "RG-04", "name": "GERANYL OCTANOATE(CAPRYLATE)", "supplier": "PENTA", "cas": "51532-26-4"}, {"code": "RG-05-T", "name": "GUAIACOL 99%", "supplier": "LLUCH", "cas": "90-05-1"}, {"code": "RG-06", "name": "GLYCERINE", "supplier": "위험물/소분판매x", "cas": "56-81-5"}, {"code": "RG-07-B50", "name": "GALAXOLIDE 50% BB", "supplier": "", "cas": "1222-05-5"}, {"code": "RG-08", "name": "GLYCOLIERRAL", "supplier": "", "cas": ""}, {"code": "RG-09", "name": "GRAPEFRUIT MERCAPTAN 1% LIMONENE(1-P-MENTHENE-8-THIOL 1% D-LIMONENE)", "supplier": "PENTA", "cas": "71159-90-5"}, {"code": "RG-10", "name": "GERANYL FORMATE", "supplier": "MOLLHAUSEN", "cas": "105-86-2"}, {"code": "RG-11", "name": "GERANYL ACETONE", "supplier": "MOLELLHAUSEN", "cas": "689-67-8"}, {"code": "RG-12", "name": "GLOBANONE 20% DPG", "supplier": "", "cas": "3100-36-5"}, {"code": "RG-13", "name": "GERANYL ISOBUTYRATE", "supplier": "MOELLHAUSEN", "cas": "2345-26-8"}, {"code": "RG-14", "name": "GERANYL PROPIONATE", "supplier": "", "cas": "105-90-8"}, {"code": "RG-15", "name": "GERANYL TIGLATE", "supplier": "", "cas": "7785-33-3"}, {"code": "RG-16", "name": "GUAIETHOL (ONLY SAMPLE-CHI)", "supplier": "", "cas": "94-71-3"}, {"code": "RG-17", "name": "GEMACRENE-D (코드만)", "supplier": "", "cas": "37839-63-7"}, {"code": "RG-18", "name": "GERANIC ACID (코드만)", "supplier": "", "cas": "459-80-3"}, {"code": "RG-19", "name": "GEMACRENE-B (코드만)", "supplier": "", "cas": "15423-57-1"}, {"code": "RH-01", "name": "HEPTANOIC ACID", "supplier": "PENTA", "cas": "111-14-8"}, {"code": "RH-02", "name": "HEPTANOL", "supplier": "", "cas": "111-70-6"}, {"code": "RH-03", "name": "HEPTANAL (ALD C-7)", "supplier": "", "cas": "111-71-7"}, {"code": "RH-04-01-T", "name": "HEXANAL (ALD C-6)", "supplier": "CORE/LLUCH", "cas": "66-25-1"}, {"code": "RH-04-T", "name": "HEXANAL (ALD C-6)", "supplier": "", "cas": "66-25-1"}, {"code": "RH-05-01-T", "name": "HEXANOIC ACID (CAPROIC ACID)", "supplier": "", "cas": "142-62-1"}, {"code": "RH-05-T", "name": "HEXANOIC ACID (CAPROIC ACID)", "supplier": "LLUCH(바한)", "cas": "142-62-1"}, {"code": "RH-06-01-T", "name": "HEXYL ALCOHOL(HEXANOL)", "supplier": "LLUCH(바)", "cas": "111-27-3"}, {"code": "RH-06-T", "name": "HEXANOL (HEXYL ALCOHOL)", "supplier": "PENTA", "cas": "111-27-3"}, {"code": "RH-07-T", "name": "CIS-3-HEXENOL", "supplier": "SAMDE", "cas": "928-96-1"}, {"code": "RH-08-T", "name": "CIS-3-HEXENYL ACETATE", "supplier": "SAMDE", "cas": "3681-71-8"}, {"code": "RH-09", "name": "CIS-3-HEXENYL BUTYRATE", "supplier": "INOUE", "cas": "16491-36-4"}, {"code": "RH-10", "name": "CIS-3-HEXENYL CAPROATE", "supplier": "INOUE", "cas": "31501-11-8"}, {"code": "RH-11", "name": "CIS-3-HEXENYL HEPTANOATE", "supplier": "", "cas": "61444-39-1"}, {"code": "RH-12", "name": "CIS-3-HEXENYL ISOBUTYRATE", "supplier": "INOUE", "cas": "41519-23-7"}, {"code": "RH-13", "name": "CIS-3-HEXENYL ISOVALERATE", "supplier": "INOUE", "cas": "35154-45-1"}, {"code": "RH-14", "name": "CIS-3-HEXENYL OCTANOATE", "supplier": "INOUE", "cas": "61444-41-5"}, {"code": "RH-15-01-T", "name": "HEXYL ACETATE", "supplier": "BEST VALUE", "cas": "142-92-7"}, {"code": "RH-15-02", "name": "HEXYL ACETATE", "supplier": "CORE/MONACHEM", "cas": "142-92-7"}, {"code": "RH-15-T", "name": "HEXYL ACETATE", "supplier": "LLUCH", "cas": "142-92-7"}, {"code": "RH-16", "name": "HEXYL CAPRYLATE(HEXYL OCTANOATE)", "supplier": "INOUE", "cas": "1117-55-1"}, {"code": "RH-17", "name": "HEDIONE(METHYL DIHYDROJASMONATE)", "supplier": "LLUCH", "cas": "24851-98-7"}, {"code": "RH-18-01-T", "name": "TRANS-2-HEXENAL [CA12560]", "supplier": "C&A", "cas": "6728-26-3"}, {"code": "RH-18-T", "name": "TRANS-2-HEXENAL", "supplier": "LLUCH", "cas": "6728-26-3"}, {"code": "RH-19", "name": "TRANS-2-HEXENYL ACETATE", "supplier": "PENTA", "cas": "2497-18-9"}, {"code": "RH-20", "name": "HEXYL PROPIONATE", "supplier": "LLUCH", "cas": "2445-76-3"}, {"code": "RH-21", "name": "HEPTYL ACETATE", "supplier": "GRAU AROMAICS", "cas": "112-06-1"}, {"code": "RH-22", "name": "TRANS-2-HEXENOL", "supplier": "CORE/ IFF", "cas": "2305-21-7"}, {"code": "RH-22-01", "name": "TRANS-2-HEXENOL FCC [CA12562]", "supplier": "C&A", "cas": "2305-21-7"}, {"code": "RH-23", "name": "HEXYL CAPROATE", "supplier": "LLUCH(바)", "cas": "6378-65-0"}, {"code": "RH-24", "name": "TRANS-2-HEXENOIC ACID", "supplier": "LLUCH", "cas": "13419-69-7"}, {"code": "RH-25", "name": "CIS-3-HEXENYL FORMATE", "supplier": "INOUE", "cas": "33467-73-1"}, {"code": "RH-26", "name": "TRANS-2-HEXENAL PGA", "supplier": "INOUE", "cas": "94089-21-1"}, {"code": "RH-27-01-T", "name": "GAMMA-HEXALACTONE", "supplier": "ACS", "cas": "695-06-7"}, {"code": "RH-27-T", "name": "GAMMA-HEXALACTONE CA12556", "supplier": "C&A", "cas": "695-06-7"}, {"code": "RH-28", "name": "HEXEYL-2-METHYL BUTYRATE", "supplier": "LLUCH", "cas": "1032-15-2"}, {"code": "RH-29", "name": "HEXYL BUTYRATE", "supplier": "PENTA", "cas": "2639-63-6"}, {"code": "RH-30", "name": "ALPHA-HEXYL CINNAMIC ALDEHYDE", "supplier": "", "cas": "101-86-0"}, {"code": "RH-31", "name": "HEXYL SALICYLATE", "supplier": "", "cas": "6259-76-3"}, {"code": "RH-32", "name": "HELIONAL (OCEAN PROPANAL)", "supplier": "", "cas": "1205-17-0"}, {"code": "RH-33", "name": "HYDROXYCITRONELLAL", "supplier": "", "cas": "107-75-5"}, {"code": "RH-34", "name": "HABANOLIDE (GLOBALIDE)", "supplier": "", "cas": "111879-80-2"}, {"code": "RH-35-T", "name": "HELIOTROPINE (PIPERONAL)", "supplier": "JIAXING SUNLONG", "cas": "120-57-0"}, {"code": "RH-36", "name": "HEXANAL PGA", "supplier": "INOUE", "cas": "1599-49-1"}, {"code": "RH-37", "name": "HOMOFURONOL", "supplier": "", "cas": "27538-10-9"}, {"code": "RH-38", "name": "CIS-3-HEXENYL LACTATE", "supplier": "INOUE", "cas": "61931-81-5"}, {"code": "RH-39", "name": "HEXYL-2-METHYL BUTYRATE", "supplier": "LLUCH", "cas": "10032-15-2"}, {"code": "RH-40", "name": "CIS-3-HEXENYL-2-METHYL BUTYRATE", "supplier": "INOUE", "cas": "53398-85-9"}, {"code": "RH-41-T", "name": "2-HEPTANONE", "supplier": "PENTA", "cas": "110-43-0"}, {"code": "RH-42", "name": "HEXYLIX (= CYCLOGALBANATE, ISOANANAT)", "supplier": "", "cas": "68901-15-5"}, {"code": "RH-43", "name": "HEXYL FORMATE", "supplier": "", "cas": "629-33-4"}, {"code": "RH-44", "name": "HEXYL ISOBUTYRATE", "supplier": "", "cas": "2349-07-7"}, {"code": "RH-45-T", "name": "GAMMA-HEPTALACTONE", "supplier": "ACS", "cas": "105-21-5"}, {"code": "RH-46", "name": "CIS-3-HEXENYL PYRUVATE", "supplier": "", "cas": "68133-76-6"}, {"code": "RH-47", "name": "3,4-HEXANEDIONE", "supplier": "", "cas": "4437-51-8"}, {"code": "RH-48", "name": "HEXYL ISOVALERATE", "supplier": "", "cas": "10032-13-0"}, {"code": "RH-49", "name": "CIS-3-HEXENYL PROPIONATE", "supplier": "Inoue", "cas": "33467-74-2"}, {"code": "RH-50", "name": "HEXANAL DEA", "supplier": "", "cas": "3658-93-3"}, {"code": "RH-51", "name": "CIS-3-HEXENYL BENZOATE", "supplier": "", "cas": "25152-85-6"}, {"code": "RH-52", "name": "TRANS-2-HEXENYL BUTYRRATE", "supplier": "", "cas": "53398-83-7"}, {"code": "RH-53", "name": "TRANS-3-HEXENOL", "supplier": "", "cas": "928-97-2"}, {"code": "RH-54", "name": "2-HYDROXY ISOPHORONE (SAMPLE)", "supplier": "", "cas": "4883-60-7"}, {"code": "RH-55", "name": "HERKOLINE", "supplier": "", "cas": "8050-15-5"}, {"code": "RH-56", "name": "2,4-HEPTADIENAL", "supplier": "", "cas": "4313-03-5"}, {"code": "RH-57", "name": "CIS-3-HEXENYL VALERATE (GRAU)", "supplier": "", "cas": ""}, {"code": "RH-58", "name": "CIS-3-HEXENYL BENZOATE (INOUE)", "supplier": "", "cas": ""}, {"code": "RH-60", "name": "ALPHA-HUMULENE (코드만)", "supplier": "", "cas": "6753-98-6"}, {"code": "RI-01-T", "name": "ALPHA-IONONE", "supplier": "MOELLHAUSEN", "cas": "127-41-3"}, {"code": "RI-02-01-T", "name": "BETA-IONONE", "supplier": "WANHUA", "cas": "79-77-6"}, {"code": "RI-02-T", "name": "BETA-IONONE", "supplier": "", "cas": "79-77-6"}, {"code": "RI-03-01-T", "name": "ISOAMYL ACETATE", "supplier": "CHUNZHU AROMA", "cas": "123-92-2"}, {"code": "RI-03-2", "name": "ISOAMYL ACETATE", "supplier": "", "cas": "123-92-2"}, {"code": "RI-03-T", "name": "ISOAMYL ACETATE", "supplier": "LLUCH", "cas": "123-92-2"}, {"code": "RI-04-T", "name": "ISOAMYL BUTYRATE", "supplier": "바한/chunzhu aroma", "cas": "106-27-4"}, {"code": "RI-05", "name": "ISOAMYL ISOBUTYRATE", "supplier": "LLUCH", "cas": "2050-01-3"}, {"code": "RI-06", "name": "ISOAMYL-2-METHYL BUTYRATE", "supplier": "PENTA", "cas": "27625-35-0"}, {"code": "RI-07", "name": "ISOBUTYRIC ACID", "supplier": "PENTA", "cas": "79-31-2"}, {"code": "RI-08", "name": "ISOBUTYL BUTYRATE", "supplier": "", "cas": "539-90-2"}, {"code": "RI-09", "name": "DL-ISOPULEGOL", "supplier": "PENTA", "cas": "89-79-2"}, {"code": "RI-09-01", "name": "ISOPULEGOL EXTRA FCC [CA12962]", "supplier": "C&A", "cas": "89-79-2"}, {"code": "RI-10", "name": "ISOBORNYL ACEATE", "supplier": "LLUCH", "cas": "125-12-2"}, {"code": "RI-11", "name": "ISOAMYL OCTANOATE", "supplier": "", "cas": "2035-99-6"}, {"code": "RI-12-T", "name": "ISOBUTYL ACETATE", "supplier": "PENTA", "cas": "110-19-0"}, {"code": "RI-13", "name": "BETA-IONONE EPOXIDE", "supplier": "", "cas": "23267-57-4"}, {"code": "RI-15", "name": "ISOAMYL PROPIONATE", "supplier": "", "cas": ""}, {"code": "RI-16", "name": "ISOAMYL ALCOHOL", "supplier": "MOELLHUASEN", "cas": "123-51-3"}, {"code": "RI-17", "name": "ISOPROPYL ALCOHOL", "supplier": "LLUCH", "cas": "67-63-0"}, {"code": "RI-18", "name": "ISOEUGENOL", "supplier": "INDESSO", "cas": "97-54-1"}, {"code": "RI-19", "name": "IONOL CP (BHT)", "supplier": "OXIRIS(도터)", "cas": "128-37-0"}, {"code": "RI-20", "name": "ISOEUGENYL ACETATE", "supplier": "", "cas": "93-29-8"}, {"code": "RI-21-01-T", "name": "ISOAMYL ISOVALERATE", "supplier": "HA-BC16396/MAELLHAUSEN", "cas": "659-70-1"}, {"code": "RI-21-T", "name": "ISOAMYL ISOVALERATE", "supplier": "MOELLHAUSEN", "cas": "659-70-1"}, {"code": "RI-22", "name": "ISO E SUPER (ISO MYRCETONE)", "supplier": "MOELLHAUSEN", "cas": "54464-57-2"}, {"code": "RI-23", "name": "INDOLE", "supplier": "MOELLHAUSEN", "cas": "120-72-9"}, {"code": "RI-24", "name": "ISOBUTYL ALCOHOL", "supplier": "GRAU", "cas": "78-83-1"}, {"code": "RI-26", "name": "ISOAMYL CAPROATE (HEXANOATE)", "supplier": "PENTA --->lluch", "cas": "2198-61-0"}, {"code": "RI-27", "name": "ISOPHORONE", "supplier": "PENTA", "cas": "78-59-1"}, {"code": "RI-28", "name": "2-ISOPROPYL-4-METHYLTHIAZOLE", "supplier": "MOELLHAUSEN", "cas": "15679-13-7"}, {"code": "RI-29", "name": "ISOVALERALDEHYE PGA", "supplier": "INOUE", "cas": "18433-93-7"}, {"code": "RI-30-T", "name": "ISOVALERIC ACID", "supplier": "GRAU AROMATIC GmbH&Co.KG", "cas": "503-74-2"}, {"code": "RI-31", "name": "ISOPROPYL CINNAMATE", "supplier": "", "cas": "7780-06-5"}, {"code": "RI-32", "name": "ISOPROPYL MYRISTATE", "supplier": "LLUCH", "cas": "110-27-0"}, {"code": "RI-33", "name": "ISOAMYL CAPRYLATE (OCTANOATE)", "supplier": "", "cas": "2035-99-6"}, {"code": "RI-34", "name": "ISOAMYL FORMATE", "supplier": "PENTA", "cas": "110-45-2"}, {"code": "RI-36", "name": "ISONONYL ACETATE", "supplier": "", "cas": "40379-24-6"}, {"code": "RI-37", "name": "ISONONYL ALCOHOL", "supplier": "", "cas": "3452-97-9"}, {"code": "RI-39", "name": "ISOAMYL DECANOATE (CAPRATE)", "supplier": "GRAU", "cas": "2306-91-4"}, {"code": "RI-40-T", "name": "ISOAMYL PHENYL ACETATE", "supplier": "MOELLHAUSEN", "cas": "102-19-2"}, {"code": "RI-41", "name": "ISOBUTYL PHENYL ACETATE", "supplier": "LLUCH", "cas": "102-13-6"}, {"code": "RI-42-T", "name": "ISOVALERALDEHYDE", "supplier": "PENTA", "cas": "590-86-3"}, {"code": "RI-43-T", "name": "ISOBUTANAL (ISOBUTYL ALDEHYDE)", "supplier": "INOUE", "cas": "78-84-2"}, {"code": "RI-45", "name": "ISOBUTYL CAPRYLATE", "supplier": "", "cas": "5461-06-3"}, {"code": "RI-46", "name": "ISOPROPYL ACETATE (PENTA)", "supplier": "", "cas": "108-21-4"}, {"code": "RI-47", "name": "ISOBUTYL PROPIONATE", "supplier": "", "cas": "540-42-1"}, {"code": "RI-48", "name": "ISOAMYL SALICYLATE", "supplier": "", "cas": "87-20-7"}, {"code": "RI-49", "name": "ISOBUTYL ISOBUTYRATE", "supplier": "PENTA", "cas": "97-85-8"}, {"code": "RI-50", "name": "ISOAMYL VALERATE", "supplier": "INOUE(도터)", "cas": "2050-09-1"}, {"code": "RI-51", "name": "ISOBUTYL ISOVALERATE", "supplier": "", "cas": "589-59-3"}, {"code": "RI-52", "name": "ISOBUTYL CAPROATE (ISOBUTYL HEXANOATE)", "supplier": "INOUE", "cas": "105-79-3"}, {"code": "RI-53", "name": "ISOAMYL CINNAMATE", "supplier": "", "cas": "7779-65-9"}, {"code": "RI-54", "name": "2-ISOBUTYL THIAZOLE (M&U)", "supplier": "", "cas": "18640-74-9"}, {"code": "RI-55", "name": "ISOBUTANAL PGA", "supplier": "", "cas": "67879-60-1"}, {"code": "RI-56", "name": "ISOMENTHONE", "supplier": "", "cas": "491-07-6"}, {"code": "RI-57", "name": "2-ISOPROPYL-5-METEHYL-2-HEXENAL (PENTA)", "supplier": "", "cas": "35158-25-9 / 3406 // 3.426"}, {"code": "RI-58", "name": "ISOAMYL LACTATE 10% ETOH(ONLY-SAMPLE)", "supplier": "", "cas": "19329-89-6"}, {"code": "RI-59", "name": "ISOAMYL BENZOATE", "supplier": "", "cas": ""}, {"code": "RI-60", "name": "ISOAMYL LAURATE (코드만)", "supplier": "", "cas": "6309-51-9"}, {"code": "RI-61", "name": "ISOAMYL MYRISTATE (코드만)", "supplier": "", "cas": "62488-24-8"}, {"code": "RI-62", "name": "ISOAMYL PALMITATE (코드만)", "supplier": "", "cas": "81974-61-0"}, {"code": "RI-63", "name": "ISOPULEGOL-0 (코드만)", "supplier": "", "cas": ""}, {"code": "RI-64", "name": "ISOPULEGOL-1 (코드만)", "supplier": "", "cas": ""}, {"code": "RI-65", "name": "ISOPULEGOL-2 (코드만)", "supplier": "", "cas": ""}, {"code": "RI-66", "name": "ISOPULEGOL-3 (코드만)", "supplier": "", "cas": ""}, {"code": "RJ-01", "name": "CIS-JASMONE", "supplier": "LLUCH", "cas": "488-10-8"}, {"code": "RK-01-T", "name": "KETOISOPHORONE(2,6,6-Trimethyl-2-cyclohexene-1,4-dione)", "supplier": "M&U", "cas": "1125-21-9"}, {"code": "RK-02", "name": "KOAVONE", "supplier": "", "cas": "81786-73-4"}, {"code": "RL-01", "name": "LIMONENE OXIDE", "supplier": "", "cas": "1195-92-2"}, {"code": "RL-02-01-T", "name": "LINALOOL PURE SYNTHETIC FCC [CA126351]", "supplier": "C&A", "cas": "78-70-6"}, {"code": "RL-02-T", "name": "LINALOOL", "supplier": "NHU", "cas": "78-70-6"}, {"code": "RL-03", "name": "LINALOOL OXIDE", "supplier": "LLUCH", "cas": "60047-17-8"}, {"code": "RL-04-01-T", "name": "LINALYL ACETATE PURE SYNTHETIC FCC [CA12636]", "supplier": "C&A", "cas": "115-95-7"}, {"code": "RL-04-T", "name": "LINALYL ACETATE", "supplier": "NHU", "cas": "115-95-7"}, {"code": "RL-05", "name": "D-LIMONENE", "supplier": "", "cas": "5989-27-5"}, {"code": "RL-06-T", "name": "LAURIC ACID (DODECANOIC ACID)", "supplier": "PENTA", "cas": "143-07-7"}, {"code": "RL-07", "name": "LIMONENE OXIDE", "supplier": "PENTA", "cas": "1195-92-2"}, {"code": "RL-08", "name": "LIFFAROME (CIS-3-HEXENYL CARBONATE)", "supplier": "LLUCH", "cas": "67633-96-9"}, {"code": "RL-09", "name": "LIGUSTRAL", "supplier": "LLUCH", "cas": "68039-49-6"}, {"code": "RL-10", "name": "LYRAL", "supplier": "", "cas": "31906-04-4"}, {"code": "RL-11", "name": "LEVULINIC ACID", "supplier": "PENTA", "cas": "123-76-2"}, {"code": "RL-12-T", "name": "LINALOOL OXIDE", "supplier": "MOELLHAUSEN", "cas": "1365-19-1"}, {"code": "RL-13-T", "name": "LACTIC ACID", "supplier": "", "cas": "50-21-5/KTNG :79-33-4"}, {"code": "RL-14", "name": "LINALYL BUTYRATE", "supplier": "LLUCH", "cas": "78-36-4"}, {"code": "RL-15", "name": "LAVANDULOL (코드만)", "supplier": "", "cas": "58461-27-1"}, {"code": "RL-16", "name": "LIMONENE GLYCOL (코드만)", "supplier": "", "cas": "1946-00-5"}, {"code": "RL-17", "name": "LINALOOL OXIDE ACETATE (코드만)", "supplier": "", "cas": "67689-50-3"}, {"code": "RM-01-T", "name": "MALTOL", "supplier": "HEBEI TIANLIHAI FLAVOR&FRAGRANCE", "cas": "118-71-8"}, {"code": "RM-02-T", "name": "P-METHYL ACETO PHENONE", "supplier": "", "cas": "122-00-9"}, {"code": "RM-03-T", "name": "METHYL ANTHRANILATE", "supplier": "LLUCH", "cas": "134-20-3"}, {"code": "RM-04", "name": "METHYL CAPROATE(HEXANOATE)", "supplier": "MOELLHAUSEN", "cas": "106-70-7"}, {"code": "RM-05", "name": "METHYL CAPRYLATE (METHYL OCTANOATE)", "supplier": "", "cas": "111-11-5"}, {"code": "RM-06-01-T", "name": "METHYL CINNAMATE", "supplier": "HA-BA13158/WHUAN LANDMARK", "cas": "103-26-4"}, {"code": "RM-06-T", "name": "METHYL CINNAMATE", "supplier": "MOELLHAUSEN", "cas": "103-26-4"}, {"code": "RM-07", "name": "METHYL HEPTENONE", "supplier": "TAYTONN(DSM)", "cas": "110-93-0"}, {"code": "RM-08", "name": "METHYL ISOVALERATE", "supplier": "", "cas": "559-24-1"}, {"code": "RM-09", "name": "METHYL THIO BUTYRATE", "supplier": "PENTA", "cas": "2432-51-1"}, {"code": "RM-10", "name": "METHYL-2-METHYL BUTYRATE", "supplier": "LLUCH", "cas": "868-57-5"}, {"code": "RM-100", "name": "2-Methyl-3-Tetrahydrofuranthio", "supplier": "", "cas": "57124-87-5"}, {"code": "RM-11", "name": "2-METHYL BUTYL-2-METHYL BUTYRATE", "supplier": "INOUE", "cas": "2445-78-5"}, {"code": "RM-12-T", "name": "2-METHYL BUTYRIC ACID", "supplier": "LLUCH", "cas": "116-53-0"}, {"code": "RM-13-T", "name": "MCT OIL", "supplier": "DUBOIS NATURAL ESTERS SDN BHD", "cas": "73398-61-5"}, {"code": "RM-14-01-T", "name": "MENTHONE (P-menthanone)(7:3)", "supplier": "SAMDE", "cas": "10458-14-7"}, {"code": "RM-14-02-T", "name": "MENTHONE(95:5)", "supplier": "HINDUSTAN", "cas": "10458-14-7"}, {"code": "RM-14-T", "name": "MENTHONE", "supplier": "MOELLHAUSEN", "cas": "10458-14-7"}, {"code": "RM-15", "name": "MYRCENE", "supplier": "LLUCH", "cas": "123-35-3"}, {"code": "RM-17-T", "name": "L-MENTHYL ACEATE", "supplier": "LLUCH(바)", "cas": "2623-23-6"}, {"code": "RM-18-1-T", "name": "MELONAL (INOUE)", "supplier": "", "cas": "106-72-9"}, {"code": "RM-18-T", "name": "MELONAL", "supplier": "GIVAUDAN", "cas": "106-72-9"}, {"code": "RM-19", "name": "METHYL EUGENOL", "supplier": "", "cas": ""}, {"code": "RM-20", "name": "METHYL ISOEUGENOL", "supplier": "", "cas": "93-16-3"}, {"code": "RM-21", "name": "METHYL SALICYLATE", "supplier": "LLUCH", "cas": "119-36-8"}, {"code": "RM-22-T", "name": "2-METHYL PYRAZINE", "supplier": "TENGZHOU", "cas": "109-08-0"}, {"code": "RM-23", "name": "2-METHOXY-3-METHYL PYRAZINE", "supplier": "shandong", "cas": "2847-30-5"}, {"code": "RM-24", "name": "4-METHYL-5-VINYL THIAZOLE", "supplier": "", "cas": ""}, {"code": "RM-25", "name": "METHYL IONONE GAMMA (ALPHA-ISOMETHYL IONONE)", "supplier": "", "cas": "127-51-5"}, {"code": "RM-26", "name": "METHYL P-CRESOL (P-METHYLANISOLE)", "supplier": "", "cas": "104-93-8"}, {"code": "RM-27", "name": "METHYL ISOBUTYRATE", "supplier": "", "cas": ""}, {"code": "RM-29", "name": "MAYOL", "supplier": "", "cas": "5502-75-0"}, {"code": "RM-30", "name": "MUSK T (ETHYLENE BRASSYLATE)", "supplier": "MOELLHAUSEN", "cas": "105-95-3"}, {"code": "RM-31", "name": "METHYL OCTINE CARBONATE (MOC)", "supplier": "", "cas": "111-80-8"}, {"code": "RM-32-T", "name": "MCP(METHYL CYCLOPENTENOLONE)", "supplier": "BESTALLY", "cas": "80-71-7"}, {"code": "RM-33-T", "name": "L-MENTHYL LACTATE (FRESCOLAT)", "supplier": "SYMRISE", "cas": "17162-29-7"}, {"code": "RM-34", "name": "METHYL BENZOATE", "supplier": "LLUCH", "cas": "93-58-3"}, {"code": "RM-35-T", "name": "MYRISTIC ACID", "supplier": "PENTA", "cas": "544-63-8"}, {"code": "RM-36", "name": "5-METHYL FURFURAL", "supplier": "KE-24113", "cas": "620-02-0"}, {"code": "RM-37-T", "name": "P-METHYL ACETOPHENONE", "supplier": "PENTA", "cas": "122-00-9"}, {"code": "RM-38", "name": "METHYL PHENYLACETATE", "supplier": "LLUCH", "cas": "101-41-7"}, {"code": "RM-39", "name": "METHYL BUTYRATE", "supplier": "PENTA", "cas": "623-42-7"}, {"code": "RM-40", "name": "2-METHOXY-3-ISOPROPYL PYRAZINE", "supplier": "", "cas": "25773-40-4"}, {"code": "RM-40-M1", "name": "2-METHOXY-3-ISOPROPYL PYRAZINE 1%MCT", "supplier": "", "cas": ""}, {"code": "RM-41", "name": "4-METHYL THIAZOLE", "supplier": "", "cas": "693-95-8"}, {"code": "RM-42", "name": "METHYL CAPRATE", "supplier": "inoue", "cas": "110-42-9"}, {"code": "RM-43", "name": "MUSCENONE", "supplier": "", "cas": "82356-51-2"}, {"code": "RM-44", "name": "METHYL HEPTINE CARBOBATE", "supplier": "", "cas": "111-12-6"}, {"code": "RM-45", "name": "MAGNOLAN", "supplier": "", "cas": "27606-09-3"}, {"code": "RM-46", "name": "MAJANTOL (=LILY PROPANOL)", "supplier": "", "cas": "103694-68-4"}, {"code": "RM-47", "name": "METHYL PAMPLEMOUSSE (= AMAROCIT)", "supplier": "MOELLHAUSEN", "cas": "67674-46-8"}, {"code": "RM-48", "name": "2-METHYLTHIO-3/5-METHYL PYRAZINE", "supplier": "TENGZHOU", "cas": "2882-20-4"}, {"code": "RM-49", "name": "2-METHYLTHIO-3-METHYL PYRAZINE", "supplier": "", "cas": "2882-20-4"}, {"code": "RM-50-T", "name": "MAPLE FURANONE 10% PG (ETHYL FENUGREEK LACTONE)", "supplier": "PENTA", "cas": "698-10-2"}, {"code": "RM-51", "name": "2-METHYL BUTANOL", "supplier": "", "cas": "137-32-6"}, {"code": "RM-52-T", "name": "3-METHYL VALERIC ACID", "supplier": "", "cas": "105-43-1"}, {"code": "RM-53", "name": "METHIONAL", "supplier": "PENTA", "cas": "3268-49-3"}, {"code": "RM-54", "name": "METHYL CORYLONE", "supplier": "PENTA", "cas": "13494-06-9"}, {"code": "RM-55", "name": "METHYL FURFURYL DISULFIDE", "supplier": "", "cas": "57500-00-2"}, {"code": "RM-56-T", "name": "5-METHYL QUINOXALINE", "supplier": "PENTA", "cas": "13708-12-8"}, {"code": "RM-57", "name": "2-METHOXY-3-ISOBUTYL PYRAZINE", "supplier": "", "cas": "24683-00-9"}, {"code": "RM-58", "name": "5-METHYL-2-PHENYL-2-HEXENAL (COCOA HEXENAL)", "supplier": "penta", "cas": "21834-92-4"}, {"code": "RM-58-01", "name": "MASSOIA LACTONE 95% NATURAL [CA13747] (KFDA)", "supplier": "C/A", "cas": ""}, {"code": "RM-59", "name": "2-METHYL-2-PENTENOIC ACID (STRAWBERIFF)", "supplier": "3142-72-1", "cas": "3142-72-1"}, {"code": "RM-60", "name": "METHYL MYRISTATE", "supplier": "", "cas": "124-10-7"}, {"code": "RM-61", "name": "METHYL PROPIONATE", "supplier": "LLUCH", "cas": "554-12-1"}, {"code": "RM-61-01", "name": "METHYL PROPIONATE (INOUE)", "supplier": "", "cas": "554-12-1"}, {"code": "RM-62", "name": "2-METHYL PENATNOIC ACID(2-METHYL VALERIC ACID)", "supplier": "PENTA", "cas": "97-61-0"}, {"code": "RM-63", "name": "BETA-METHYL NAPHTHYL KETONE", "supplier": "MOELLHAUSEN", "cas": "93-08-3"}, {"code": "RM-64", "name": "4-METHYL GUAIACOL (CRESOSOL)", "supplier": "", "cas": "93-51-6"}, {"code": "RM-65", "name": "2-METHYL BUTYL ACETATE", "supplier": "PENTA", "cas": "624-41-9"}, {"code": "RM-66", "name": "4-METHYLBENZYL ACETATE", "supplier": "", "cas": "2216-45-7"}, {"code": "RM-67", "name": "METHYL-3-METHYL THIOPROPIONATE", "supplier": "", "cas": "13532-18-8"}, {"code": "RM-68", "name": "METHYL-2-FUROATE", "supplier": "", "cas": "611-13-2"}, {"code": "RM-69", "name": "METHYL BETA-PHENYLGLYCIDATE", "supplier": "", "cas": "37161-74-3"}, {"code": "RM-70", "name": "2-METHYL TETRAHYDROFURAN-3-ONE (COFFEE FURANONE)", "supplier": "", "cas": "3188-00-9"}, {"code": "RM-71", "name": "METHIONOL", "supplier": "", "cas": "505-10-2"}, {"code": "RM-72", "name": "METHYL-3-HYDROXY CAPROATE", "supplier": "", "cas": "21188-58-9"}, {"code": "RM-73", "name": "METHYL LINOLEATE (INOUE)", "supplier": "", "cas": "112-63-0"}, {"code": "RM-74", "name": "METHYL ACETATE", "supplier": "", "cas": "79-20-9"}, {"code": "RM-75", "name": "2-METHYL HEXANOIC ACID", "supplier": "", "cas": "4536-23-6"}, {"code": "RM-76", "name": "METHYL THIOACETATE", "supplier": "", "cas": "1534-08-3"}, {"code": "RM-77", "name": "MILK LACTONE", "supplier": "MOELLHAUSEN", "cas": "72881-27-7"}, {"code": "RM-78", "name": "2-METHOXY-3-ISOPROPYL PYRAZINE (PENTA)", "supplier": "", "cas": "25773-40-4"}, {"code": "RM-80", "name": "METHYL ACRYLATE (대정화금)", "supplier": "", "cas": ""}, {"code": "RM-81", "name": "2-METHOXY-3-SEC BUTYL PYRAZINE", "supplier": "", "cas": "24168-70-5"}, {"code": "RM-82", "name": "METHYL-P-TERT-BUTYL PHENYL ACETATE", "supplier": "", "cas": "3549-23-3"}, {"code": "RM-83", "name": "2-METHYL BUTYLALDEHYDE (INOUE)", "supplier": "", "cas": "96-17-3"}, {"code": "RM-84", "name": "METHYL MERCAPTAN 1% PG", "supplier": "", "cas": "74-93-1"}, {"code": "RM-85", "name": "DL-MENTHOL 620006", "supplier": "SYMRISE", "cas": "89-78-1"}, {"code": "RM-86", "name": "METHYL-3-NONENOATE", "supplier": "도터라인(PENTA)", "cas": "13481-87-3"}, {"code": "RM-87", "name": "3-MERCAPTOHEXYL ACETATE", "supplier": "도터라인(M&U)", "cas": ""}, {"code": "RM-88", "name": "METHYL-2-NONENOATE (NEOFOLIONE)", "supplier": "", "cas": "111-79-5"}, {"code": "RM-89", "name": "3-METHYL CYCLOHEXANONE (코드만)", "supplier": "", "cas": "591-24-2"}, {"code": "RM-90", "name": "MINTFURANONE (코드만)", "supplier": "", "cas": "13341-72-5"}, {"code": "RM-91", "name": "NEOISOMENTHOL (코드만)", "supplier": "", "cas": "491-02-1"}, {"code": "RM-92", "name": "ISOMENTHOL (코드만)", "supplier": "", "cas": "3623-52-7"}, {"code": "RM-93", "name": "NEOMENTHOL (코드만)", "supplier": "", "cas": "2216-52-6"}, {"code": "RM-94", "name": "MYRTENYL ACETATE", "supplier": "", "cas": "1079-01-2"}, {"code": "RM-95", "name": "PARA-1-MENTHENE (코드만)", "supplier": "", "cas": "5502-88-5"}, {"code": "RM-96", "name": "MENTHONE (코드만)", "supplier": "", "cas": "491-07-6"}, {"code": "RM-97", "name": "MENTHATRIENE (코드만)", "supplier": "", "cas": "21195-59-5"}, {"code": "RM-98", "name": "MYRISTCIN (코드만)", "supplier": "", "cas": "607-91-0"}, {"code": "RM-99", "name": "ALPHA-MUUROLENE (코드만)", "supplier": "", "cas": "10208-80-7"}, {"code": "RN-01", "name": "NEROL", "supplier": "NHU", "cas": "106-25-2"}, {"code": "RN-02", "name": "NERYL ACETATE", "supplier": "MOELLHAUSEN", "cas": "141-12-8"}, {"code": "RN-03", "name": "NONANAL (ALD C-9)", "supplier": "PENTA", "cas": "124-19-6"}, {"code": "RN-04", "name": "NONANOIC ACID", "supplier": "PENTA", "cas": "112-05-0"}, {"code": "RN-05", "name": "NONANOL", "supplier": "PENTA", "cas": "143-08-8"}, {"code": "RN-06", "name": "TRANS-2-NONENAL", "supplier": "PENTA", "cas": "18829-56-6"}, {"code": "RN-07", "name": "CIS-6-NONENAL", "supplier": "LLUCH", "cas": "2277-19-2"}, {"code": "RN-08", "name": "2-NONANONE", "supplier": "MOELLHAUSEN", "cas": "821-55-6"}, {"code": "RN-09-01-T", "name": "GAMMA-NONALACTONE (ALD C-18)", "supplier": "ACS", "cas": "104-61-0"}, {"code": "RN-09-T", "name": "GAMMA NONALACTONE(ALDEHYDE C18) [CA12781]", "supplier": "C&A", "cas": "104-61-0"}, {"code": "RN-10", "name": "NOOTKATONE 65/70% [CA59098]", "supplier": "C&A", "cas": "4674-50-4"}, {"code": "RN-10-01", "name": "NOOTKATONE 84%", "supplier": "MOELLHAUSEN", "cas": "4674-50-4"}, {"code": "RN-11", "name": "CIS-6-NONENOL", "supplier": "PENTA", "cas": "35854-86-5"}, {"code": "RN-11-01", "name": "Cis-6-Nonen-1-ol", "supplier": "Bedoukian", "cas": "35854-86-5"}, {"code": "RN-12", "name": "NEROLIN YARA YARA", "supplier": "", "cas": "93-04-9"}, {"code": "RN-13", "name": "NEROLIN BROMELIA", "supplier": "", "cas": "93-18-5"}, {"code": "RN-14-T", "name": "NEROLIDOL", "supplier": "LLUCH", "cas": "7212-44-4"}, {"code": "RN-15-T", "name": "Trans-2,Cis-6-NONADIENAL CA13377", "supplier": "C&A", "cas": "557-48-2"}, {"code": "RN-16", "name": "T-2-C-6-NONADIENOL", "supplier": "PENTA", "cas": "28069-72-9"}, {"code": "RN-17", "name": "NOPYL ACETATE", "supplier": "", "cas": "128-51-8"}, {"code": "RN-18", "name": "DELTA-NONALACTONE [CA13356]", "supplier": "C&A", "cas": "3301-94-8"}, {"code": "RN-19", "name": "NERYL BUTYRATE", "supplier": "", "cas": "990-40-6"}, {"code": "RN-20", "name": "NICOTINE", "supplier": "", "cas": "54-11-5"}, {"code": "RN-21", "name": "NONYL ACETATE", "supplier": "INOUE", "cas": "143-13-5"}, {"code": "RN-22", "name": "NERYL PROPIONATE", "supplier": "INOUE", "cas": "105-91-9"}, {"code": "RO-01", "name": "CIS BETA-OCIMENE", "supplier": "", "cas": "13877-91-3"}, {"code": "RO-02-01-T", "name": "GAMMA-OCTALACTONE[도터]", "supplier": "", "cas": "104-50-7"}, {"code": "RO-02-T", "name": "GAMMA-OCTALACTONE [CA12796]", "supplier": "C&A", "cas": "104-50-7"}, {"code": "RO-03", "name": "OCTANAL (ALD C-8)", "supplier": "MOELLHAUSEN", "cas": "124-13-0"}, {"code": "RO-04-T", "name": "OCTANOIC ACID (CAPRYLIC)", "supplier": "PENTA", "cas": "124-07-2"}, {"code": "RO-05", "name": "OCTANOL", "supplier": "LLCUH", "cas": "111-87-5"}, {"code": "RO-06", "name": "3-OCTANOL", "supplier": "PENTA", "cas": "589-98-0"}, {"code": "RO-06-01", "name": "3-OCTANOL", "supplier": "LLUCH", "cas": "589-98-0"}, {"code": "RO-07", "name": "OTBCH ACETATE (AGRUMEX, VERDOX)", "supplier": "", "cas": "88-41-5"}, {"code": "RO-08", "name": "OCTYL ACETATE", "supplier": "LLUCH", "cas": "112-14-1"}, {"code": "RO-09", "name": "2-OCTANONE", "supplier": "", "cas": "111-13-7"}, {"code": "RO-10", "name": "3-OCTYL ACETATE", "supplier": "", "cas": "4864-61-3"}, {"code": "RO-11", "name": "DELTA-OCTALACTONE[CA13214]", "supplier": "C&A", "cas": "698-76-0"}, {"code": "RO-12", "name": "1-OCTEN-3-OL", "supplier": "", "cas": "3391-86-4"}, {"code": "RO-13", "name": "2-OCTANOL", "supplier": "", "cas": ""}, {"code": "RO-14", "name": "OXANE (ES)", "supplier": "", "cas": "59323-76-1"}, {"code": "RO-15", "name": "OLEIC ACID (PENTA)", "supplier": "", "cas": "112-80-1"}, {"code": "RO-16", "name": "OCTEN-3-OL (코드만)", "supplier": "", "cas": "3391-86-4"}, {"code": "RO-17", "name": "TRANS BETA-OCIMENE (코드만)", "supplier": "", "cas": "3779-61-1"}, {"code": "RO-18", "name": "3-OCTANONE (코드만)", "supplier": "", "cas": "106-68-3"}, {"code": "RP-01-01-T", "name": "PHENYL ETHYL ALCOHOL [FARWELL, 18060518]", "supplier": "", "cas": "60-12-8"}, {"code": "RP-01-T", "name": "PHENYL ETHYL ALCHOL", "supplier": "Yinghai", "cas": "60-12-8"}, {"code": "RP-02", "name": "PROPYL CAPROATE", "supplier": "LLUCH", "cas": "626-77-7"}, {"code": "RP-03", "name": "PULEGONE", "supplier": "", "cas": "89-82-7"}, {"code": "RP-04", "name": "ALPHA-PINENE", "supplier": "DONGINCOM", "cas": "80-56-8"}, {"code": "RP-05", "name": "BETA-PINENE", "supplier": "LLUCH", "cas": "18172-67-3"}, {"code": "RP-06", "name": "PHELLANDRENE", "supplier": "", "cas": "99-83-2"}, {"code": "RP-07", "name": "PROPYL ACETATE", "supplier": "PUJIE", "cas": "109-60-4"}, {"code": "RP-07-01", "name": "PROPYL ACETATE", "supplier": "KP-BC16100/ PUJIE AROMA", "cas": "109-60-4"}, {"code": "RP-08-T", "name": "PROPIONIC ACID", "supplier": "BQ TECH.", "cas": "79-09-4"}, {"code": "RP-09", "name": "PENTANOIC ACID(VALERIC ACID)", "supplier": "", "cas": "109-52-4"}, {"code": "RP-10-T", "name": "PROPYLENE GLYCOL(PGI)", "supplier": "", "cas": "57-55-6"}, {"code": "RP-11", "name": "PRENYL ACETATE", "supplier": "", "cas": "1191-16-8"}, {"code": "RP-12", "name": "PHENYL ETHYL PHENYL ACETATE", "supplier": "YANGHAI", "cas": "102-20-5"}, {"code": "RP-13-T", "name": "PHENYL ETHYL ACETATE", "supplier": "YINGHAI", "cas": "103-45-7"}, {"code": "RP-14", "name": "PHENYL ETHYL BENZOATE", "supplier": "", "cas": "94-47-3"}, {"code": "RP-15", "name": "PROPYL ALCOHOL", "supplier": "PENTA", "cas": "71-23-8"}, {"code": "RP-16", "name": "PHENOXANOL", "supplier": "", "cas": "55066-48-3"}, {"code": "RP-17", "name": "PROPYL PROPIONATE", "supplier": "", "cas": "106-36-5"}, {"code": "RP-18", "name": "PHENYL ETHYL BUTYRATE", "supplier": "PENTA", "cas": "103-52-6"}, {"code": "RP-19", "name": "PHENYL ETHYL ISOBUTYRATE", "supplier": "YINGHAI", "cas": "103-48-0"}, {"code": "RP-20", "name": "PHENYL PROPYL ALCOHOL", "supplier": "PENTA", "cas": "122-97-4"}, {"code": "RP-21-T", "name": "PHENYL ACETALDEHYDE", "supplier": "SIGMA", "cas": "122-78-1"}, {"code": "RP-22-T", "name": "PHENYL ACETIC ACID", "supplier": "", "cas": "103-82-2"}, {"code": "RP-23", "name": "PHENYL ETHYL ISOVALERATE", "supplier": "GRAU", "cas": "140-26-1"}, {"code": "RP-24", "name": "PALMITIC ACID (HEXADECANOIC ACID)", "supplier": "도터라인(penta)", "cas": "57-10-3"}, {"code": "RP-25", "name": "PROPYL ISOVALERATE", "supplier": "GRAU", "cas": "557-00-6"}, {"code": "RP-26", "name": "PROPYL-2-METHYL BUTYRATE", "supplier": "GRAU", "cas": "37064-20-3"}, {"code": "RP-27", "name": "PENTALIDE (=EXALTOLIDE)", "supplier": "", "cas": "106-02-5"}, {"code": "RP-28", "name": "PTBCH ACETATE", "supplier": "", "cas": ""}, {"code": "RP-29", "name": "PATCHONE", "supplier": "", "cas": ""}, {"code": "RP-30", "name": "PHENIRAT (PHENOXY ET. ISOBUTYRATE)", "supplier": "", "cas": "103-60-6"}, {"code": "RP-31", "name": "PERANAT (=PEAR VALERATE)", "supplier": "", "cas": ""}, {"code": "RP-32-T", "name": "PENTANOL(AMYL ALCOHOL)", "supplier": "INOUE", "cas": "71-41-0"}, {"code": "RP-33", "name": "ALPHA-PHELLANDRENE", "supplier": "Moellhausen", "cas": "99-83-2"}, {"code": "RP-34", "name": "PROPYL BUTYRATE", "supplier": "PENTA", "cas": "105-66-8"}, {"code": "RP-35", "name": "PHENYL ETHYL FORMATE", "supplier": "", "cas": "104-62-1"}, {"code": "RP-36", "name": "2-PENTANONE (METHYL PROPYL KETONE)", "supplier": "", "cas": "107-87-9"}, {"code": "RP-37", "name": "PYRIDINE", "supplier": "", "cas": "110-86-1"}, {"code": "RP-38", "name": "PROPANAL (PROPIONALDEHYDE)", "supplier": "", "cas": "123-38-6"}, {"code": "RP-39", "name": "PHENYL PROPYL ACETATE", "supplier": "", "cas": "122-72-5"}, {"code": "RP-40", "name": "PERILLA ALDEHYDE", "supplier": "", "cas": "2111-75-3"}, {"code": "RP-41", "name": "PERILLATRINE", "supplier": "", "cas": ""}, {"code": "RP-42", "name": "PROPYL ALCOHOL (PROPANOL)", "supplier": "", "cas": "71-23-8"}, {"code": "RP-43", "name": "PEONILE", "supplier": "", "cas": "10461-98-0 / / / 3.851 HANGZHOU GRASCENT"}, {"code": "RP-44", "name": "1-PENTEN-3-OL", "supplier": "", "cas": "616-25-1"}, {"code": "RP-46", "name": "PHENYL ETHYL TIGLATE (INOUE)", "supplier": "", "cas": "55719-85-2"}, {"code": "RP-47", "name": "PROPENYL GUAETHOL (VANITROPE)", "supplier": "", "cas": "94-86-0"}, {"code": "RP-48", "name": "PHENYL ACETALDEHYDE D.M.A (MOELLHAUSEN)", "supplier": "", "cas": "101-48-4"}, {"code": "RP-49", "name": "BETA-PHELLANDRENE", "supplier": "", "cas": "555-10-2"}, {"code": "RP-50", "name": "2-PENTADECANONE", "supplier": "", "cas": "2345-28-0"}, {"code": "RP-51", "name": "PIPERITONE (코드만)", "supplier": "", "cas": "89-81-6"}, {"code": "RP-52", "name": "ISOPULEGONE", "supplier": "", "cas": "29606-79-9"}, {"code": "RR-01-01-T", "name": "RASPBERRY KETONE [CA12588]", "supplier": "C&A", "cas": "5471-51-2"}, {"code": "RR-01-T", "name": "RASPBERRY KETONE", "supplier": "NHU", "cas": "5471-51-2"}, {"code": "RR-02", "name": "ROSE OXIDE(바)", "supplier": "LLUCH", "cas": "16409-43-1"}, {"code": "RR-03", "name": "ROSEPHENONE (ROSALIN)", "supplier": "", "cas": "90-17-5"}, {"code": "RR-04", "name": "RHODINOL", "supplier": "", "cas": "141-25-3"}, {"code": "RS-01", "name": "SULFUROL", "supplier": "MOELLHAUSEN", "cas": "137-00-8"}, {"code": "RS-01-01", "name": "SULFUROL [CA13204]", "supplier": "C&A", "cas": "0"}, {"code": "RS-02", "name": "SULFURYL ACETATE", "supplier": "", "cas": "656-53-1"}, {"code": "RS-03", "name": "SULFURYL CAPRATE (SULFURYL DECANOATE)", "supplier": "PENTA", "cas": "101426-31-7"}, {"code": "RS-04", "name": "SULFURYL CAPRYLATE (SULFURYL OCTANOATE)", "supplier": "INOUE", "cas": "163266-17-9"}, {"code": "RS-05", "name": "SABINENE", "supplier": "LLUCH", "cas": "3387-41-5"}, {"code": "RS-06", "name": "STYRALLYL ACETATE (1-PHENYLETHYL ACETATE)", "supplier": "JIANSU XINRUI AROMATICS Ltd.", "cas": "93-92-5"}, {"code": "RS-08", "name": "STYRALLYL ALCOHOL (1-PHENYL ETHYL ALCOHOL)", "supplier": "LLUCH", "cas": "98-85-1"}, {"code": "RS-09", "name": "STYRALLYL PROPIONATE", "supplier": "", "cas": "120-45-6"}, {"code": "RS-10", "name": "SADALORE (=SANDAROLEX)", "supplier": "", "cas": "65113-99-7"}, {"code": "RS-11", "name": "SUPERSANTOL(POLYSANTOL)", "supplier": "", "cas": "107898-54-4"}, {"code": "RS-12", "name": "SUCRALOSE", "supplier": "", "cas": "56038-13-2"}, {"code": "RS-13-T", "name": "INVERT SUGAR", "supplier": "", "cas": "8013-17-0"}, {"code": "RS-14", "name": "SULFURYL PROPIONATE (INOUE)", "supplier": "", "cas": "324742-96-3"}, {"code": "RS-15", "name": "SULFURYL HEXANOATE (PENTA)", "supplier": "", "cas": "94159-32-7"}, {"code": "RS-16", "name": "SKATOLE", "supplier": "", "cas": "83-34-1"}, {"code": "RS-17", "name": "S-370", "supplier": "", "cas": ""}, {"code": "RS-18", "name": "S-1670", "supplier": "", "cas": ""}, {"code": "RS-19", "name": "SAFRANAL PURE", "supplier": "TATYONNN(ORGANICA)", "cas": ""}, {"code": "RS-20", "name": "STEARIC ACID (PENTA)", "supplier": "", "cas": "57-11-4"}, {"code": "RS-21", "name": "SPATHULENOL (코드만)", "supplier": "", "cas": "6750-60-3"}, {"code": "RS-22", "name": "BETA-SELINENE (코드만)", "supplier": "", "cas": "17066-67-0"}, {"code": "RS-23", "name": "ALPHA-SELINENE (코드만)", "supplier": "", "cas": "473-13-2"}, {"code": "RS-24", "name": "ISOSAFROLE", "supplier": "", "cas": "120-58-1"}, {"code": "RS-25", "name": "ISOSPATHULENOL (코드만)", "supplier": "", "cas": "88395-46-4"}, {"code": "RS-26", "name": "BETA-SESQUIPHELLANDRENE (코드만)", "supplier": "", "cas": "20307-83-9"}, {"code": "RS-27", "name": "STYRALLYL ISOBUTYRATE", "supplier": "", "cas": "7775-39-5"}, {"code": "RT-01-T", "name": "ALPHA-TERPINEOL", "supplier": "LLUCH", "cas": "98-55-5"}, {"code": "RT-02", "name": "GAMMA-TERPINENE", "supplier": "DONGINCOM", "cas": "99-85-4"}, {"code": "RT-02-01", "name": "GAMMA-TERPINENE", "supplier": "JIAXING SUNLONG", "cas": "99-85-4"}, {"code": "RT-03", "name": "THIOMENTHONE(P-MENTHA-8-THIOL-3-ONE)", "supplier": "PENTA", "cas": "38462-22-5"}, {"code": "RT-04", "name": "TERPINYL ACETATE", "supplier": "MOELLHAUSEN", "cas": "80-26-2"}, {"code": "RT-05-T", "name": "P-TOLU ALDEHYDE", "supplier": "PENTA", "cas": "104-87-0"}, {"code": "RT-06-T", "name": "2,3,5-TRIMETHYL PYRAZINE", "supplier": "MOELLHAUSEN", "cas": "14667-55-1"}, {"code": "RT-07", "name": "TRIACETIN", "supplier": "TIANYUAN(CHINA)/CNK", "cas": "102-76-1"}, {"code": "RT-08", "name": "TONALIDE (FIXOLIDE)", "supplier": "", "cas": "1506-02-1"}, {"code": "RT-09-T", "name": "TRIETHYL CITRATE", "supplier": "LLUCH", "cas": "77-93-0"}, {"code": "RT-10", "name": "THYMOL", "supplier": "", "cas": "89-83-8"}, {"code": "RT-11", "name": "TETRAHYDRO LINALOOL", "supplier": "", "cas": "78-69-3"}, {"code": "RT-12-T", "name": "2,3,5,6-TETRAMETHYL PYRAZINE", "supplier": "MOELLHAUSEN", "cas": "1124-11-4"}, {"code": "RT-13-T", "name": "P-TOLYALDEHYDE", "supplier": "", "cas": "104-87-0"}, {"code": "RT-14", "name": "TERPINOLENE", "supplier": "MOELLHAUSEN", "cas": "586-62-9"}, {"code": "RT-15", "name": "ALPHA-TERPINENE", "supplier": "LLUCH", "cas": "99-86-5"}, {"code": "RT-16", "name": "4-TERPINEOL", "supplier": "MOELLHAUSEN", "cas": "562-74-3"}, {"code": "RT-17", "name": "TRIPROPIONINE", "supplier": "", "cas": "139-45-7"}, {"code": "RT-18", "name": "THEASPIRANE (=SPIROXIDE)", "supplier": "ORGANICA", "cas": "36431-72-8"}, {"code": "RT-19", "name": "TABANONE", "supplier": "", "cas": ""}, {"code": "RT-20", "name": "TERPINYL BUTYRATE (PENTA)", "supplier": "", "cas": "2153-28-8"}, {"code": "RT-21", "name": "1-TERPINEOL (코드만)", "supplier": "", "cas": "586-82-3"}, {"code": "RT-22", "name": "ALPHA-THUJENE (코드만)", "supplier": "", "cas": "2867-05-2"}, {"code": "RT-23", "name": "2-Thiophenethiol", "supplier": "", "cas": "7774-74-5"}, {"code": "RU-01", "name": "2-UNDECANONE (NONYL METHYL KETONE)", "supplier": "PENTA", "cas": "112-12-9"}, {"code": "RU-02-01-T", "name": "GAMMA-UNDECALACTONE (ALD C-14) CA13091", "supplier": "C&A", "cas": "104-67-6"}, {"code": "RU-02-02-T", "name": "GAMMA-UNDECALACTONE (ALD C-14)", "supplier": "Anhui Hyea", "cas": "104-67-6"}, {"code": "RU-02-T", "name": "GAMMA-UNDECALACTONE (ALD C-14)", "supplier": "", "cas": "104-67-6"}, {"code": "RU-03", "name": "DELTA-UNDECALACTONE", "supplier": "PENTA", "cas": "710-04-3"}, {"code": "RU-04", "name": "UNDECAVERTOL (VIOLET DECENOL)", "supplier": "", "cas": "81782-77-6"}, {"code": "RV-01-T", "name": "VANILLIN", "supplier": "JIANGXI BROTHERS", "cas": "121-33-5"}, {"code": "RV-02", "name": "VELOUTONE (FRUITY CYCLOPENTANONE)", "supplier": "", "cas": "65443-14-3"}, {"code": "RV-03", "name": "VALENCENE 80/85 CA53443", "supplier": "C&A", "cas": "4630-07-3"}, {"code": "RV-03-01", "name": "VALENCENE", "supplier": "SIGMA", "cas": "4630-07-3"}, {"code": "RV-04", "name": "VERTOFIX COEUR (MCK COEUR)", "supplier": "", "cas": "32388-55-9"}, {"code": "RV-05", "name": "VERDYL ACETATE (=GREENYL ACETATE)", "supplier": "", "cas": "5413-60-5"}, {"code": "RV-06", "name": "VERDYL PROPIONATE (=CYCLOPROP)", "supplier": "", "cas": "68912-13-0"}, {"code": "RV-07", "name": "VALERALDEHYDE (PENTANAL)", "supplier": "", "cas": "110-62-3"}, {"code": "RV-08-T", "name": "GAMMA-VALEROLACTONE", "supplier": "LLUCH", "cas": "108-29-2"}, {"code": "RV-09", "name": "VINYL SULFUROL 50% B.ALC", "supplier": "", "cas": ""}, {"code": "RV-10-T", "name": "VERATRALDEHYDE (METHYL VANILLIN)", "supplier": "", "cas": "120-14-9"}, {"code": "RV-12", "name": "VERATROLE (1,2-DIMETHOXY BENZENE) (PENTA)", "supplier": "", "cas": "91-16-7"}, {"code": "RV-13", "name": "VANILLIN PGA (INOUE)", "supplier": "", "cas": ""}, {"code": "RV-14", "name": "VIRIDIFLOROL (=VERIDIFLOROL) (코드만)", "supplier": "", "cas": "552-02-3"}, {"code": "RW-01", "name": "WS-23", "supplier": "CHINA", "cas": "51115-67-4"}, {"code": "RW-02-01-T", "name": "WS-3 (COOLING AGENT-3)", "supplier": "FENGLE(CHINA)", "cas": "39711-79-0"}, {"code": "RW-02-T", "name": "WS-3", "supplier": "SYMRISE", "cas": "39711-79-0"}, {"code": "RW-03", "name": "정제수", "supplier": "", "cas": "7732-18-5"}, {"code": "RW-04", "name": "WS-5 (SYMRISE)", "supplier": "", "cas": ""}, {"code": "RX-01", "name": "3,4-XYLENOL", "supplier": "유독물", "cas": "95-65-8"}, {"code": "RZ-01", "name": "ZENOLIDE (ATTRACTOLIDE)", "supplier": "", "cas": "54982-83-1"}, {"code": "RZ-02", "name": "ZESTORIL (코드만)", "supplier": "", "cas": "1208985-45-8"}, {"code": "RZ-03", "name": "ALPAH-ZINGIBERENE (코드만)", "supplier": "", "cas": "495-60-3"}, {"code": "RZ-04", "name": "ZINGIBERENOL (코드만)", "supplier": "", "cas": "58334-55-7"}, {"code": "SE1406(F)", "name": "SPEARMINT SE1406", "supplier": "아로마솔루션", "cas": ""}, {"code": "SE1406(F-1)", "name": "SPEARMINT SE1406 (F-1)", "supplier": "아로마솔루션", "cas": ""}, {"code": "TA2-0613", "name": "COLA FLA.", "supplier": "", "cas": ""}, {"code": "가-1", "name": "덱스트린", "supplier": "", "cas": ""}, {"code": "가-2", "name": "이산화규소", "supplier": "", "cas": ""}, {"code": "가-3", "name": "네오탐", "supplier": "", "cas": "165450-17-9"}];
+
+function toggleChangelog(){
+  document.getElementById('changelog').classList.toggle('open');
+}
+
+// ── PC 전용: 저장 폴더 연결 (File System Access API) ──────────────
+let dirHandle = null;
+const supportsFolderConnect = ('showDirectoryPicker' in window);
+
+function idbOpen(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open('rawmat_app_db', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('handles');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(key, val){
+  const db = await idbOpen();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(val, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGet(key){
+  const db = await idbOpen();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function connectFolder(){
+  try{
+    const handle = await window.showDirectoryPicker({mode:'readwrite'});
+    dirHandle = handle;
+    await idbSet('exportDir', handle);
+    updateFolderStatus();
+  }catch(e){
+    // 사용자가 선택창을 취소한 경우 등 - 무시
+  }
+}
+
+async function restoreFolderHandle(){
+  if(!supportsFolderConnect) return;
+  try{
+    const stored = await idbGet('exportDir');
+    if(stored){
+      const perm = await stored.queryPermission({mode:'readwrite'});
+      if(perm === 'granted'){
+        dirHandle = stored;
+      }else{
+        // 권한이 끊겼으면 다시 연결하라고 안내 (자동으로 팝업을 띄우면 차단당하므로 사용자가 버튼을 눌러야 함)
+        dirHandle = null;
+      }
+    }
+  }catch(e){
+    dirHandle = null;
+  }
+  updateFolderStatus();
+}
+
+function updateFolderStatus(){
+  const el = document.getElementById('folderStatus');
+  if(!el) return;
+  el.textContent = dirHandle ? ('✓ 연결됨: ' + dirHandle.name) : '연결 안 됨';
+  el.style.color = dirHandle ? 'var(--teal)' : 'var(--muted)';
+  const hint = document.getElementById('exportHint');
+  if(hint && dirHandle){
+    hint.textContent = '마스터_입고대장.xlsx(' + dirHandle.name + ')에 바로 이어붙습니다';
+  }
+}
+
+async function saveFileToFolder(blob, filename){
+  if(!dirHandle) return false;
+  try{
+    const fileHandle = await dirHandle.getFileHandle(filename, {create:true});
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  }catch(e){
+    console.error(e);
+    return false;
+  }
+}
+// ─────────────────────────────────────────────────────────────
+
+function toggleSettings(){
+  const p = document.getElementById('settingsPanel');
+  p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
+}
+
+function loadSettings(){
+  const key = localStorage.getItem('rawmat_api_key') || '';
+  const model = localStorage.getItem('rawmat_model') || 'claude-sonnet-5';
+  const master = localStorage.getItem('rawmat_master_list') || '';
+  document.getElementById('s_apikey').value = key;
+  document.getElementById('s_model').value = model;
+  document.getElementById('s_masterlist').value = master;
+  updateKeyStatusBadge();
+}
+
+function saveSettings(){
+  localStorage.setItem('rawmat_api_key', document.getElementById('s_apikey').value.trim());
+  localStorage.setItem('rawmat_model', document.getElementById('s_model').value);
+  localStorage.setItem('rawmat_master_list', document.getElementById('s_masterlist').value);
+  updateKeyStatusBadge();
+  toggleSettings();
+  setStatus('설정을 저장했습니다.');
+}
+
+function updateKeyStatusBadge(){
+  const key = localStorage.getItem('rawmat_api_key') || '';
+  const badge = document.getElementById('keyStatusBadge');
+  badge.textContent = key ? '✓ API 키 설정됨' : '⚠ API 키 미설정 — 설정을 눌러 등록하세요';
+  badge.style.color = key ? 'var(--teal)' : 'var(--amber)';
+}
+
+// ── 기기 간 설정 이전용 QR (API 키 + 모델. 키가 그대로 담기니 취급 주의) ──
+function showExportQR(){
+  const key = document.getElementById('s_apikey').value.trim();
+  if(!key){
+    setStatus('먼저 API 키를 입력한 뒤 QR을 만들어주세요.', true);
+    return;
+  }
+  const payload = JSON.stringify({t:'rawmat_app_settings', key: key, model: document.getElementById('s_model').value});
+  const holder = document.getElementById('qrCanvasHolder');
+  holder.innerHTML = '';
+  new QRCode(holder, {
+    text: payload,
+    width: 320,
+    height: 320,
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  document.getElementById('qrExportBox').style.display = 'block';
+}
+
+function hideExportQR(){
+  document.getElementById('qrExportBox').style.display = 'none';
+  document.getElementById('qrCanvasHolder').innerHTML = '';
+}
+
+document.getElementById('qrScanInput').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('qrScanStatus');
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'QR 읽는 중...';
+
+  const reader = new FileReader();
+  reader.onload = (ev)=>{
+    const img = new Image();
+    img.onload = async ()=>{
+      let result = null;
+      try{
+        if(typeof jsQR === 'undefined'){
+          throw new Error('LIB_MISSING');
+        }
+        // 화면을 찍은 사진은 해상도가 매우 크거나(수천 px) 대비가 낮을 수 있어,
+        // 몇 가지 크기로 순서대로 시도한다.
+        const attempts = [1600, 900, Math.max(img.width, img.height)];
+        for(const maxDim of attempts){
+          result = tryDecodeAtSize(img, maxDim);
+          if(result) break;
+        }
+        if(!result){
+          statusEl.style.color = 'var(--red)';
+          statusEl.textContent = 'QR을 찾지 못했습니다. 화면 밝기를 올리고, 반사가 없는 각도에서 QR이 화면 가득 나오게 다시 찍어주세요.';
+          return;
+        }
+        let parsed;
+        try{
+          parsed = JSON.parse(result);
+        }catch(parseErr){
+          throw new Error('FORMAT_MISMATCH');
+        }
+        if(parsed.t !== 'rawmat_app_settings') throw new Error('FORMAT_MISMATCH');
+        document.getElementById('s_apikey').value = parsed.key || '';
+        document.getElementById('s_model').value = parsed.model || 'claude-sonnet-5';
+        localStorage.setItem('rawmat_api_key', parsed.key || '');
+        localStorage.setItem('rawmat_model', parsed.model || 'claude-sonnet-5');
+        updateKeyStatusBadge();
+        statusEl.style.color = 'var(--teal)';
+        statusEl.textContent = '✓ 설정을 불러와 저장했습니다.';
+        document.getElementById('qrScanInput').value = '';
+      }catch(err){
+        console.error(err);
+        statusEl.style.color = 'var(--red)';
+        if(err.message === 'LIB_MISSING'){
+          statusEl.textContent = 'QR 인식 기능을 불러오지 못했습니다 (인터넷 연결 문제로 필요한 부품이 안 받아진 것 같습니다). Wi-Fi/데이터 연결 확인 후 이 페이지를 새로고침해서 다시 시도해주세요.';
+        }else if(err.message === 'FORMAT_MISMATCH'){
+          const preview = result ? String(result).slice(0, 60) : '(내용 없음)';
+          statusEl.textContent = `QR은 읽었지만 이 앱 형식이 아닙니다. 다른 QR(예: 원료 라벨의 QR)을 찍으신 건 아닌지 확인해주세요. — 읽힌 내용: "${preview}${result && result.length > 60 ? '...' : ''}"`;
+        }else{
+          statusEl.textContent = 'QR 처리 중 오류가 발생했습니다: ' + err.message;
+        }
+      }
+    };
+    img.onerror = ()=>{
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '사진을 여는 데 실패했습니다. 다시 시도해주세요.';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+function toggleKeyVisibility(){
+  const field = document.getElementById('s_apikey');
+  const btn = document.getElementById('keyEyeBtn');
+  if(field.type === 'password'){
+    field.type = 'text';
+    btn.textContent = '🙈';
+  }else{
+    field.type = 'password';
+    btn.textContent = '👁';
+  }
+}
+
+// ── 사진으로 API 키 읽기 (오프라인 OCR, API 키가 아직 없어도 동작해야 하므로 서버 호출 없이 처리) ──
+let tesseractLoadPromise = null;
+function ensureTesseractLoaded(){
+  if(window.Tesseract) return Promise.resolve();
+  if(tesseractLoadPromise) return tesseractLoadPromise;
+  tesseractLoadPromise = new Promise((resolve, reject)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('LOAD_FAIL'));
+    document.head.appendChild(s);
+  });
+  return tesseractLoadPromise;
+}
+
+document.getElementById('keyScanInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('keyScanStatus');
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = '문자 인식 기능을 불러오는 중...';
+
+  try{
+    await ensureTesseractLoaded();
+    statusEl.textContent = '사진에서 글자 읽는 중... (몇 초 걸릴 수 있어요)';
+
+    const resized = await resizeImage(file, 1600, 0.92);
+    const dataUrl = 'data:image/jpeg;base64,' + resized;
+
+    const worker = await Tesseract.createWorker('eng');
+    const { data: { text } } = await worker.recognize(dataUrl);
+    await worker.terminate();
+
+    // sk-ant- 로 시작하는 키 패턴을 텍스트에서 찾는다 (OCR이 넣는 공백/줄바꿈 제거)
+    const cleaned = text.replace(/\s+/g, '');
+    const match = cleaned.match(/sk-ant-[A-Za-z0-9\-_]{20,}/);
+
+    if(match){
+      document.getElementById('s_apikey').value = match[0];
+      document.getElementById('s_apikey').type = 'text';
+      document.getElementById('keyEyeBtn').textContent = '🙈';
+      statusEl.style.color = 'var(--teal)';
+      statusEl.textContent = '✓ 인식됨 — 아래 입력칸에서 값이 맞는지 확인 후 저장하세요.';
+    }else{
+      statusEl.style.color = 'var(--red)';
+      const preview = text.trim().slice(0, 80).replace(/\n/g, ' ');
+      statusEl.textContent = `키 형식(sk-ant-...)을 찾지 못했습니다. 인식된 텍스트: "${preview || '(내용 없음)'}" — 화면이 잘 보이게 다시 찍거나 직접 입력해주세요.`;
+    }
+    document.getElementById('keyScanInput').value = '';
+  }catch(err){
+    console.error(err);
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = err.message === 'LOAD_FAIL'
+      ? '인식 기능을 불러오지 못했습니다. 인터넷 연결을 확인해주세요.'
+      : '인식 중 오류가 발생했습니다: ' + err.message;
+  }
+});
+
+function tryDecodeAtSize(img, maxDim){
+  let w = img.width, h = img.height;
+  if(Math.max(w,h) > maxDim){
+    const scale = maxDim / Math.max(w,h);
+    w = Math.round(w*scale); h = Math.round(h*scale);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  let imageData;
+  try{
+    imageData = ctx.getImageData(0, 0, w, h);
+  }catch(e){
+    return null; // 캔버스 크기 제한 등으로 실패
+  }
+  const result = jsQR(imageData.data, imageData.width, imageData.height, {inversionAttempts:'attemptBoth'});
+  return result ? result.data : null;
+}
+
+function getExtraList(){
+  const raw = localStorage.getItem('rawmat_master_list') || '';
+  return raw.split('\n').map(s => s.trim()).filter(Boolean)
+    .map(name => ({code:'', name, supplier:'', cas:''}));
+}
+
+function getFullMasterPool(){
+  return MASTER_DB.concat(getExtraList());
+}
+
+function normCas(s){
+  return String(s||'').trim().replace(/\s/g, '');
+}
+
+// 간단한 레벤슈타인 거리 기반 유사도 (0~1, 1이 완전 일치)
+function similarity(a, b){
+  a = String(a||'').toLowerCase().replace(/\s/g, '');
+  b = String(b||'').toLowerCase().replace(/\s/g, '');
+  if(!a || !b) return 0;
+  if(a === b) return 1;
+  if(a.includes(b) || b.includes(a)) return 0.9;
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m+1}, () => new Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0] = i;
+  for(let j=0;j<=n;j++) dp[0][j] = j;
+  for(let i=1;i<=m;i++){
+    for(let j=1;j<=n;j++){
+      dp[i][j] = a[i-1] === b[j-1]
+        ? dp[i-1][j-1]
+        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  const dist = dp[m][n];
+  return 1 - dist / Math.max(m, n);
+}
+
+// ocr = {name, cas, maker} → {mode:'cas'|'name', candidates:[{...entry, score}], best}
+function findMatches(ocr){
+  const pool = getFullMasterPool();
+  const ocrCas = normCas(ocr.cas);
+
+  if(ocrCas){
+    const casHits = pool.filter(e => normCas(e.cas) === ocrCas);
+    if(casHits.length > 0){
+      // 공급사까지 비교해서 정렬 (제조사 일치하는 걸 위로)
+      const scored = casHits.map(e => ({...e, score: 1, supplierScore: similarity(e.supplier, ocr.maker)}));
+      scored.sort((a,b) => b.supplierScore - a.supplierScore);
+      return {mode:'cas', candidates: scored, best: scored[0]};
+    }
+  }
+
+  // CAS로 못 찾으면 이름 유사도로 폴백
+  if(!ocr.name) return {mode:'name', candidates:[], best:null};
+  const scored = pool
+    .map(e => ({...e, score: similarity(e.name, ocr.name)}))
+    .filter(e => e.score >= 0.55)
+    .sort((a,b) => b.score - a.score);
+  return {mode:'name', candidates: scored.slice(0,5), best: scored[0] || null};
+}
+
+function renderMatchHint(match, ocr){
+  const hint = document.getElementById('matchHint');
+  const codeField = document.getElementById('f_code');
+  hint.onclick = null;
+
+  if(!match.best){
+    hint.style.display = 'none';
+    if(codeField) codeField.value = '';
+    return;
+  }
+
+  hint.style.display = 'block';
+
+  // CAS로 정확히 찾았고 후보가 1개뿐이면 자동 확정
+  if(match.mode === 'cas' && match.candidates.length === 1){
+    if(codeField) codeField.value = match.best.code;
+    hint.textContent = `✓ CAS 일치 → ${match.best.name} (${match.best.code})`;
+    hint.style.color = 'var(--teal)';
+    return;
+  }
+
+  // CAS로 찾았는데 공급사 후보가 여러 개 (제조사로 1순위는 골라뒀지만 확인 필요)
+  if(match.mode === 'cas' && match.candidates.length > 1){
+    if(codeField) codeField.value = match.best.code;
+    hint.style.color = 'var(--amber)';
+    hint.innerHTML = `⚠ CAS는 일치하지만 공급사가 여러 개입니다. 추정: <b>${match.best.name} (${match.best.code} / ${match.best.supplier||'공급사 미상'})</b> — 아래에서 선택:`;
+    renderCandidateButtons(match.candidates);
+    return;
+  }
+
+  // 이름 유사도 매칭
+  if(match.best.score >= 0.97){
+    if(codeField) codeField.value = match.best.code;
+    hint.style.color = 'var(--teal)';
+    hint.textContent = `✓ 마스터 리스트 일치: ${match.best.name}${match.best.code ? ' ('+match.best.code+')' : ''}`;
+  }else{
+    hint.style.color = 'var(--amber)';
+    hint.textContent = `→ "${match.best.name}"${match.best.code ? ' ('+match.best.code+')' : ''} 로 추정됩니다 (탭하면 적용)`;
+    hint.style.cursor = 'pointer';
+    hint.onclick = () => applyCandidate(match.best);
+    if(match.candidates.length > 1) renderCandidateButtons(match.candidates);
+  }
+}
+
+function renderCandidateButtons(candidates){
+  const box = document.getElementById('matchCandidates');
+  box.innerHTML = candidates.slice(0,5).map((c,i) => `
+    <button type="button" class="btn btn-ghost" style="font-size:11.5px; padding:6px 9px; margin:4px 4px 0 0;"
+      onclick='applyCandidateByIndex(${i})'>${escapeHtml(c.name)}${c.code ? ' · '+escapeHtml(c.code) : ''}${c.supplier ? ' · '+escapeHtml(c.supplier) : ''}</button>
+  `).join('');
+  window.__matchCandidates = candidates;
+}
+
+function applyCandidateByIndex(i){
+  applyCandidate(window.__matchCandidates[i]);
+}
+
+function applyCandidate(entry){
+  document.getElementById('f_name').value = entry.name;
+  if(document.getElementById('f_code')) document.getElementById('f_code').value = entry.code || '';
+  const hint = document.getElementById('matchHint');
+  hint.style.color = 'var(--teal)';
+  hint.textContent = '✓ 적용됨: ' + entry.name + (entry.code ? ' ('+entry.code+')' : '');
+  document.getElementById('matchCandidates').innerHTML = '';
+}
+
+function applyMasterMatch(){
+  const name = document.getElementById('f_name').value.trim();
+  const cas = document.getElementById('f_cas') ? document.getElementById('f_cas').value.trim() : '';
+  const maker = document.getElementById('f_maker').value.trim();
+  document.getElementById('matchCandidates').innerHTML = '';
+  const match = findMatches({name, cas, maker});
+  renderMatchHint(match, {name, cas, maker});
+}
+
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+let photoQueue = [];   // 갤러리에서 여러 장 선택했을 때 대기열
+let queueIndex = 0;
+
+async function loadAndProcessFile(file){
+  const resized = await resizeImage(file, 1800, 0.92);
+  currentImageB64 = resized;
+
+  document.getElementById('scanEmpty').style.display = 'none';
+  const img = document.getElementById('previewImg');
+  img.src = 'data:image/jpeg;base64,' + resized;
+  img.style.display = 'block';
+  document.getElementById('scanZone').classList.add('has-img');
+  document.getElementById('resultCard').style.display = 'none';
+  document.getElementById('rotateBar').style.display = 'flex';
+
+  updateQueueBadge();
+  runOCR(resized);
+}
+
+function updateQueueBadge(){
+  const badge = document.getElementById('queueBadge');
+  const skipBtn = document.getElementById('skipBtn');
+  if(photoQueue.length > 1){
+    badge.style.display = 'block';
+    badge.textContent = `${queueIndex + 1} / ${photoQueue.length}`;
+    if(skipBtn) skipBtn.textContent = (queueIndex + 1 < photoQueue.length) ? '건너뛰기' : '취소';
+  }else{
+    badge.style.display = 'none';
+    if(skipBtn) skipBtn.textContent = '다시 촬영';
+  }
+}
+
+function skipOrReset(){
+  if(photoQueue.length > 1){
+    advanceQueueOrReset();
+  }else{
+    resetScan();
+  }
+}
+
+// 목록에 추가했거나 건너뛴 뒤, 대기열에 남은 사진이 있으면 이어서 처리
+function advanceQueueOrReset(){
+  if(photoQueue.length > 0 && queueIndex + 1 < photoQueue.length){
+    queueIndex++;
+    loadAndProcessFile(photoQueue[queueIndex]);
+  }else{
+    photoQueue = [];
+    queueIndex = 0;
+    resetScan();
+  }
+}
+
+document.getElementById('fileInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  photoQueue = [];
+  queueIndex = 0;
+  loadAndProcessFile(file);
+});
+
+document.getElementById('galleryInput').addEventListener('change', async (e)=>{
+  const files = Array.from(e.target.files || []);
+  if(files.length === 0) return;
+  photoQueue = files;
+  queueIndex = 0;
+  loadAndProcessFile(photoQueue[0]);
+});
+
+// 이미지를 deg(90 또는 -90)만큼 회전시켜 미리보기/전송용 base64를 갱신
+function rotateImage(deg){
+  const img = new Image();
+  img.onload = ()=>{
+    const canvas = document.createElement('canvas');
+    const swap = Math.abs(deg % 180) === 90;
+    canvas.width = swap ? img.height : img.width;
+    canvas.height = swap ? img.width : img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.translate(canvas.width/2, canvas.height/2);
+    ctx.rotate(deg * Math.PI / 180);
+    ctx.drawImage(img, -img.width/2, -img.height/2);
+    currentImageB64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+    document.getElementById('previewImg').src = 'data:image/jpeg;base64,' + currentImageB64;
+  };
+  img.src = 'data:image/jpeg;base64,' + currentImageB64;
+}
+
+function resizeImage(file, maxW, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > maxW){ h = Math.round(h * (maxW / w)); w = maxW; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl.split(',')[1]);
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function setStatus(msg, isErr){
+  const el = document.getElementById('statusLine');
+  el.textContent = msg || '';
+  el.classList.toggle('err', !!isErr);
+}
+
+async function runOCR(imgB64){
+  const apiKey = localStorage.getItem('rawmat_api_key') || '';
+  if(!apiKey){
+    setStatus('API 키가 설정되지 않았습니다. 상단 "⚙ 설정"에서 먼저 등록해주세요.', true);
+    document.getElementById('resultCard').style.display = 'block';
+    document.getElementById('f_recv').value = todayStr();
+    return;
+  }
+  const model = localStorage.getItem('rawmat_model') || 'claude-sonnet-5';
+
+  document.getElementById('scanZone').classList.add('scanning');
+  setStatus('인식 중...');
+
+  try{
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: model,
+        max_tokens: 1000,
+        system: "너는 향료/원료 라벨 사진에서 정보를 추출하는 인식기다. 라벨은 회전되어 있거나(가로/세로/뒤집힘), 거울상으로 찍혀 있을 수 있는데, 이는 사진 촬영 각도 때문일 뿐이니 방향과 무관하게 정상적인 글자로 읽고 확신도를 낮추지 마라. 반드시 JSON 객체 하나만 출력한다. 마크다운 코드블록, 설명 문장은 절대 포함하지 않는다. 라벨에서 정말로 보이지 않거나 인쇄 자체가 흐려서 알아볼 수 없는 항목만 빈 문자열로 둔다. 라벨은 한자/영문/한글이 섞여 있을 수 있다. 제조사 항목은 수하인(Consignee)이나 수입처가 아니라 실제 생산자(Shipper/Manufacturer)를 우선한다. 날짜는 가능하면 YYYY-MM-DD 형식으로 변환한다.",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: "image/jpeg", data: imgB64 } },
+              { type: "text", text: "이 원료 라벨 사진에서 다음 키를 가진 JSON을 추출해줘: name(원료명, 라벨에 여러 언어로 병기되어 있으면 가장 명확한 표기 하나), cas(CAS No., 라벨에 있으면. 하이픈 포함 형식 그대로, 예: 1139-30-6), lot(LOT번호 또는 Batch No.), mfg_date(제조일자/Production Date), exp_date(유효기한/Expiry Date), maker(제조사/회사명). JSON만 출력." }
+            ]
+          }
+        ]
+      })
+    });
+
+    if(!response.ok){
+      const errBody = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errBody.slice(0,200)}`);
+    }
+
+    const data = await response.json();
+    const textBlock = (data.content || []).map(b => b.text || "").join("");
+    const clean = textBlock.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(clean);
+
+    document.getElementById('f_name').value = parsed.name || '';
+    document.getElementById('f_cas').value = parsed.cas || '';
+    document.getElementById('f_lot').value = parsed.lot || '';
+    document.getElementById('f_mfg').value = parsed.mfg_date || '';
+    document.getElementById('f_exp').value = parsed.exp_date || '';
+    document.getElementById('f_maker').value = parsed.maker || '';
+    document.getElementById('f_qty').value = '';
+    document.getElementById('f_recv').value = todayStr();
+    document.getElementById('f_note').value = '';
+    document.getElementById('f_code').value = '';
+
+    document.getElementById('resultCard').style.display = 'block';
+    setStatus('인식 완료 — 내용을 확인하고 필요하면 수정하세요.');
+    applyMasterMatch();
+  }catch(err){
+    console.error(err);
+    setStatus('인식 실패: ' + err.message + ' — 직접 입력해주세요.', true);
+    document.getElementById('f_name').value = '';
+    document.getElementById('f_cas').value = '';
+    document.getElementById('f_lot').value = '';
+    document.getElementById('f_mfg').value = '';
+    document.getElementById('f_exp').value = '';
+    document.getElementById('f_maker').value = '';
+    document.getElementById('f_qty').value = '';
+    document.getElementById('f_recv').value = todayStr();
+    document.getElementById('f_note').value = '';
+    document.getElementById('f_code').value = '';
+    document.getElementById('resultCard').style.display = 'block';
+  }finally{
+    document.getElementById('scanZone').classList.remove('scanning');
+  }
+}
+
+function resetScan(){
+  document.getElementById('scanEmpty').style.display = 'block';
+  document.getElementById('previewImg').style.display = 'none';
+  document.getElementById('scanZone').classList.remove('has-img');
+  document.getElementById('resultCard').style.display = 'none';
+  document.getElementById('rotateBar').style.display = 'none';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('galleryInput').value = '';
+  document.getElementById('queueBadge').style.display = 'none';
+  document.getElementById('matchHint').style.display = 'none';
+  document.getElementById('matchCandidates').innerHTML = '';
+  setStatus('');
+}
+
+window.addEventListener('DOMContentLoaded', ()=>{
+  loadSettings();
+  restoreFolderHandle();
+  if(supportsFolderConnect){
+    document.getElementById('folderConnectField').style.display = 'block';
+  }
+});
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('f_name').addEventListener('blur', applyMasterMatch);
+  document.getElementById('f_cas').addEventListener('blur', applyMasterMatch);
+  document.getElementById('f_maker').addEventListener('blur', applyMasterMatch);
+});
+
+function addToList(){
+  const entry = {
+    recv: document.getElementById('f_recv').value.trim() || todayStr(),
+    name: document.getElementById('f_name').value.trim(),
+    code: document.getElementById('f_code').value.trim(),
+    cas: document.getElementById('f_cas').value.trim(),
+    lot: document.getElementById('f_lot').value.trim(),
+    mfg: document.getElementById('f_mfg').value.trim(),
+    exp: document.getElementById('f_exp').value.trim(),
+    maker: document.getElementById('f_maker').value.trim(),
+    qty: document.getElementById('f_qty').value.trim(),
+    note: document.getElementById('f_note').value.trim(),
+  };
+  if(!entry.name){
+    setStatus('원료명이 비어있습니다. 확인해주세요.', true);
+    return;
+  }
+  items.push(entry);
+  renderList();
+  advanceQueueOrReset();
+}
+
+function removeItem(idx){
+  items.splice(idx, 1);
+  renderList();
+}
+
+function renderList(){
+  const area = document.getElementById('listArea');
+  document.getElementById('countPill').textContent = items.length + '건';
+  document.getElementById('exportBtn').textContent = '엑셀로 내보내기 (' + items.length + '건)';
+  document.getElementById('exportBtn').disabled = items.length === 0;
+
+  if(items.length === 0){
+    area.innerHTML = '<div class="empty-hint">아직 추가된 항목이 없습니다</div>';
+    return;
+  }
+  area.innerHTML = items.map((it, idx)=>`
+    <div class="item">
+      <div class="item-main">
+        <div class="item-name">${escapeHtml(it.name)}${it.code ? ' <span style="color:var(--teal); font-family:var(--mono); font-size:11px;">'+escapeHtml(it.code)+'</span>' : ''}</div>
+        <div class="item-meta">
+          LOT <b>${escapeHtml(it.lot||'-')}</b> · 제조사 <b>${escapeHtml(it.maker||'-')}</b><br>
+          제조 <b>${escapeHtml(it.mfg||'-')}</b> · 유효 <b>${escapeHtml(it.exp||'-')}</b><br>
+          입고량 <b>${escapeHtml(it.qty||'-')}</b> · 입고일 <b>${escapeHtml(it.recv)}</b>
+        </div>
+      </div>
+      <button class="del-btn" onclick="removeItem(${idx})">✕</button>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+const MASTER_FILENAME = '마스터_입고대장.xlsx';
+const BATCH_PREFIX = '입고배치_';
+
+function rowsFromItems(list){
+  return list.map(it => ({
+    '입고일': it.recv,
+    '품목코드': it.code,
+    '원료명': it.name,
+    'CAS No.': it.cas,
+    'LOT번호': it.lot,
+    '제조일자': it.mfg,
+    '유효기한': it.exp,
+    '제조사': it.maker,
+    '입고수량': it.qty,
+    '비고': it.note
+  }));
+}
+
+function buildWorkbook(rows){
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [
+    {wch:11},{wch:12},{wch:22},{wch:13},{wch:16},{wch:12},{wch:12},{wch:16},{wch:10},{wch:20}
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '입고목록');
+  return wb;
+}
+
+function timestamp(){
+  const d = new Date();
+  return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')
+       +'_'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0')+String(d.getSeconds()).padStart(2,'0');
+}
+
+// 연결된 폴더에서 마스터 파일을 읽어 기존 행을 반환 (없으면 빈 배열)
+async function readMasterRows(){
+  try{
+    const fh = await dirHandle.getFileHandle(MASTER_FILENAME, {create:false});
+    const file = await fh.getFile();
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws);
+  }catch(e){
+    return []; // 파일이 아직 없는 경우
+  }
+}
+
+async function writeMasterRows(rows){
+  const wb = buildWorkbook(rows);
+  const wbArray = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+  const blob = new Blob([wbArray], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  return await saveFileToFolder(blob, MASTER_FILENAME);
+}
+
+async function appendToMaster(newRows){
+  const existing = await readMasterRows();
+  const combined = existing.concat(newRows);
+  const ok = await writeMasterRows(combined);
+  return {ok, addedCount: newRows.length, totalCount: combined.length};
+}
+
+let lastExportBlob = null;
+let lastExportFilename = null;
+
+async function retryShareLastExport(){
+  if(!lastExportBlob){
+    setStatus('다시 공유할 파일이 없습니다. 먼저 내보내기를 눌러주세요.', true);
+    return;
+  }
+  try{
+    const file = new File([lastExportBlob], lastExportFilename, {type: lastExportBlob.type});
+    if(!navigator.canShare || !navigator.canShare({files:[file]})){
+      setStatus('이 기기/브라우저에서는 파일 공유가 지원되지 않습니다 (canShare: false). 다운로드된 파일을 OneDrive 앱에서 직접 업로드해주세요.', true);
+      return;
+    }
+    await navigator.share({ files: [file], title: '원료 입고 배치', text: lastExportFilename });
+    setStatus('✓ 공유되었습니다.');
+    document.getElementById('reshareBtn').style.display = 'none';
+  }catch(err){
+    if(err.name === 'AbortError'){
+      setStatus('공유가 취소되었습니다.', true);
+    }else{
+      setStatus('공유 재시도 실패: [' + err.name + '] ' + err.message, true);
+    }
+  }
+}
+
+async function exportExcel(){
+  if(items.length === 0) return;
+  const newRows = rowsFromItems(items);
+
+  // ── PC + 폴더 연결됨: 마스터 파일에 바로 이어붙이기 ──
+  if(dirHandle){
+    setStatus('마스터 파일에 저장 중...');
+    const result = await appendToMaster(newRows);
+    if(result.ok){
+      setStatus(`✓ 마스터_입고대장.xlsx 에 ${result.addedCount}건 추가 (총 ${result.totalCount}건)`);
+    }else{
+      setStatus('마스터 파일 저장 실패 — 아래 방법으로 대체합니다.', true);
+      const wb = buildWorkbook(newRows);
+      const wbArray = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+      const blob = new Blob([wbArray], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      XLSX.writeFile(wb, BATCH_PREFIX + timestamp() + '.xlsx');
+    }
+  }else{
+    // ── 폰 / 폴더 미연결: 배치 파일로 내보내서 공유 ──
+    const wb = buildWorkbook(newRows);
+    const filename = BATCH_PREFIX + timestamp() + '.xlsx';
+    const wbArray = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+    const blob = new Blob([wbArray], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    lastExportBlob = blob;
+    lastExportFilename = filename;
+
+    let shared = false;
+    if(!navigator.share){
+      setStatus('이 브라우저는 공유 기능(Web Share)을 지원하지 않아 바로 다운로드합니다.', true);
+    }else{
+      try{
+        const file = new File([blob], filename, {type: blob.type});
+        const canShareFiles = navigator.canShare && navigator.canShare({files:[file]});
+        if(!canShareFiles){
+          setStatus('이 파일 형식은 공유가 지원되지 않는다고 판단되어 바로 다운로드합니다. (canShare: false) — 아래 "다시 공유하기"를 눌러 재시도해보세요.', true);
+          document.getElementById('reshareBtn').style.display = 'block';
+        }else{
+          await navigator.share({ files: [file], title: '원료 입고 배치', text: filename });
+          shared = true;
+          document.getElementById('reshareBtn').style.display = 'none';
+        }
+      }catch(err){
+        shared = false;
+        document.getElementById('reshareBtn').style.display = 'block';
+        if(err.name === 'AbortError'){
+          setStatus('공유가 취소되었습니다. 아래 "다시 공유하기"로 다시 시도할 수 있습니다.', true);
+        }else{
+          setStatus('공유창을 여는 데 실패해 다운로드로 대체합니다: [' + err.name + '] ' + err.message, true);
+        }
+      }
+    }
+    if(!shared){
+      XLSX.writeFile(wb, filename);
+    }
+  }
+
+  setTimeout(()=>{
+    if(confirm('내보내기가 끝났습니다. 다음 배치를 위해 이 화면의 목록을 비울까요?')){
+      items = [];
+      renderList();
+    }
+  }, 300);
+}
+
+// 연결된 폴더의 입고배치_*.xlsx 파일들을 전부 마스터에 병합하고 배치 파일은 삭제
+async function mergeBatchFiles(){
+  if(!dirHandle){
+    setStatus('먼저 설정에서 폴더를 연결해주세요.', true);
+    return;
+  }
+  setStatus('폴더에서 배치 파일 검색 중...');
+  const batchFiles = [];
+  for await (const [name, handle] of dirHandle.entries()){
+    if(handle.kind === 'file' && name.startsWith(BATCH_PREFIX) && name.endsWith('.xlsx')){
+      batchFiles.push(name);
+    }
+  }
+  if(batchFiles.length === 0){
+    setStatus('병합할 배치 파일이 없습니다.');
+    return;
+  }
+  if(!confirm(`배치 파일 ${batchFiles.length}개를 찾았습니다. 마스터_입고대장.xlsx에 합치고, 병합된 배치 파일은 삭제할까요?`)){
+    return;
+  }
+
+  let collected = [];
+  let failedFiles = [];
+  for(const name of batchFiles){
+    try{
+      const fh = await dirHandle.getFileHandle(name, {create:false});
+      const file = await fh.getFile();
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws);
+      collected = collected.concat(rows);
+    }catch(e){
+      failedFiles.push(name);
+    }
+  }
+
+  const result = await appendToMaster(collected);
+  if(!result.ok){
+    setStatus('마스터 파일 저장에 실패했습니다. 병합을 중단합니다.', true);
+    return;
+  }
+
+  // 성공적으로 병합된 파일만 삭제 (읽기 실패한 파일은 남겨둠)
+  let deletedCount = 0;
+  for(const name of batchFiles){
+    if(failedFiles.includes(name)) continue;
+    try{
+      await dirHandle.removeEntry(name);
+      deletedCount++;
+    }catch(e){ /* 삭제 실패 시 무시 - 다음 병합 때 다시 시도됨 */ }
+  }
+
+  let msg = `✓ 배치 ${deletedCount}개 병합 완료 (총 ${result.addedCount}건 추가, 마스터 누적 ${result.totalCount}건)`;
+  if(failedFiles.length > 0) msg += ` · 읽기 실패 ${failedFiles.length}개는 폴더에 남겨뒀습니다`;
+  setStatus(msg);
+}
+</script>
+
+</body>
+</html>
