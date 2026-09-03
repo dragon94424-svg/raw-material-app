@@ -144,13 +144,14 @@
 <header>
   <div class="title-row">
     <h1>원료 입고 인식기</h1>
-    <span class="ver-badge" onclick="toggleChangelog()">v4.0 ▾</span>
+    <span class="ver-badge" onclick="toggleChangelog()">v4.1 ▾</span>
   </div>
   <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
   <div id="changelog">
+    v4.1 (2026-08-10)<br>
+    · QR 설정 이전에 구글시트 주소도 포함되도록 개선 — PC↔폰 한 번에 전체 설정 이전 가능<br>
     v4.0 (2026-08-10)<br>
-    · [중요] 구글시트 직접 연동 추가 — 설정에 웹앱 주소를 넣으면 공유창/다운로드 없이 서버가 직접 시트에 저장 (휴대폰 공유 기능 제약과 무관하게 항상 동작)<br>
-    · 설정에 "연결 테스트" 버튼 추가<br>
+    · [중요] 구글시트 직접 연동 추가 — 공유창/다운로드 없이 서버가 직접 시트에 저장<br>
     v3.8 (2026-08-10)<br>
     · 공유 실패 원인 표시, "다시 공유하기" 버튼 추가<br>
     v3.7 (2026-08-10)<br>
@@ -536,7 +537,12 @@ function showExportQR(){
     setStatus('먼저 API 키를 입력한 뒤 QR을 만들어주세요.', true);
     return;
   }
-  const payload = JSON.stringify({t:'rawmat_app_settings', key: key, model: document.getElementById('s_model').value});
+  const payload = JSON.stringify({
+    t:'rawmat_app_settings',
+    key: key,
+    model: document.getElementById('s_model').value,
+    sheetUrl: document.getElementById('s_sheeturl').value.trim()
+  });
   const holder = document.getElementById('qrCanvasHolder');
   holder.innerHTML = '';
   new QRCode(holder, {
@@ -591,11 +597,14 @@ document.getElementById('qrScanInput').addEventListener('change', (e)=>{
         if(parsed.t !== 'rawmat_app_settings') throw new Error('FORMAT_MISMATCH');
         document.getElementById('s_apikey').value = parsed.key || '';
         document.getElementById('s_model').value = parsed.model || 'claude-sonnet-5';
+        document.getElementById('s_sheeturl').value = parsed.sheetUrl || '';
         localStorage.setItem('rawmat_api_key', parsed.key || '');
         localStorage.setItem('rawmat_model', parsed.model || 'claude-sonnet-5');
+        localStorage.setItem('rawmat_sheet_url', parsed.sheetUrl || '');
         updateKeyStatusBadge();
+        updateExportHint();
         statusEl.style.color = 'var(--teal)';
-        statusEl.textContent = '✓ 설정을 불러와 저장했습니다.';
+        statusEl.textContent = '✓ 설정을 불러와 저장했습니다' + (parsed.sheetUrl ? ' (구글시트 주소 포함)' : '') + '.';
         document.getElementById('qrScanInput').value = '';
       }catch(err){
         console.error(err);
