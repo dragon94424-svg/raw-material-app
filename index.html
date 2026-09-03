@@ -144,22 +144,21 @@
 <header>
   <div class="title-row">
     <h1>원료 입고 인식기</h1>
-    <span class="ver-badge" onclick="toggleChangelog()">v4.1 ▾</span>
+    <span class="ver-badge" onclick="toggleChangelog()">v4.2 ▾</span>
   </div>
   <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
   <div id="changelog">
+    v4.2 (2026-08-10)<br>
+    · 설정에 "담당자 이름" 추가 — 등록한 모든 항목에 자동으로 이름이 붙어 구글시트/엑셀에서 누가 입력했는지 구분 가능<br>
+    · (구글시트 연동 쓰시는 경우, Apps Script 코드도 새로 받아서 재배포해야 등록자 컬럼이 기록됩니다)<br>
     v4.1 (2026-08-10)<br>
-    · QR 설정 이전에 구글시트 주소도 포함되도록 개선 — PC↔폰 한 번에 전체 설정 이전 가능<br>
+    · QR 설정 이전에 구글시트 주소도 포함<br>
     v4.0 (2026-08-10)<br>
-    · [중요] 구글시트 직접 연동 추가 — 공유창/다운로드 없이 서버가 직접 시트에 저장<br>
+    · [중요] 구글시트 직접 연동 추가<br>
     v3.8 (2026-08-10)<br>
-    · 공유 실패 원인 표시, "다시 공유하기" 버튼 추가<br>
-    v3.7 (2026-08-10)<br>
-    · API 키 사진 인식, 표시/숨김 토글<br>
-    v3.6 (2026-08-10)<br>
-    · [중요] QR 인식 라이브러리 주소 오류 수정<br>
-    v3.5~v3.0 (2026-08-10)<br>
-    · QR 설정 이전, 이미지 화질 개선, 갤러리 선택, 마스터DB 내장 등<br>
+    · 공유 실패 원인 표시, "다시 공유하기" 버튼<br>
+    v3.7~v3.0 (2026-08-10)<br>
+    · API 키 사진 인식, QR 이전, 이미지 화질 개선, 마스터DB 내장 등<br>
     v2.3~v1.0 (2026-08-10)<br>
     · 마스터 파일 누적, PC 폴더 연결, 회전 보정, API 키 방식 전환 등 초기 반복
   </div>
@@ -169,6 +168,10 @@
   </div>
   <div id="settingsPanel" class="card" style="display:none; margin-top:10px; margin-bottom:0;">
     <h3>설정</h3>
+    <div class="field">
+      <label>담당자 이름 (구글시트에 등록자로 기록됩니다)</label>
+      <input id="s_username" placeholder="예: 홍길동">
+    </div>
     <div class="field">
       <label>Anthropic API 키 (console.anthropic.com 에서 발급)</label>
       <input id="s_apikey" type="password" placeholder="sk-ant-...">
@@ -462,10 +465,12 @@ function loadSettings(){
   const model = localStorage.getItem('rawmat_model') || 'claude-sonnet-5';
   const master = localStorage.getItem('rawmat_master_list') || '';
   const sheetUrl = localStorage.getItem('rawmat_sheet_url') || '';
+  const userName = localStorage.getItem('rawmat_user_name') || '';
   document.getElementById('s_apikey').value = key;
   document.getElementById('s_model').value = model;
   document.getElementById('s_masterlist').value = master;
   document.getElementById('s_sheeturl').value = sheetUrl;
+  document.getElementById('s_username').value = userName;
   updateKeyStatusBadge();
 }
 
@@ -474,6 +479,7 @@ function saveSettings(){
   localStorage.setItem('rawmat_model', document.getElementById('s_model').value);
   localStorage.setItem('rawmat_master_list', document.getElementById('s_masterlist').value);
   localStorage.setItem('rawmat_sheet_url', document.getElementById('s_sheeturl').value.trim());
+  localStorage.setItem('rawmat_user_name', document.getElementById('s_username').value.trim());
   updateKeyStatusBadge();
   toggleSettings();
   setStatus('설정을 저장했습니다.');
@@ -1094,6 +1100,7 @@ function addToList(){
     maker: document.getElementById('f_maker').value.trim(),
     qty: document.getElementById('f_qty').value.trim(),
     note: document.getElementById('f_note').value.trim(),
+    submitter: localStorage.getItem('rawmat_user_name') || '',
   };
   if(!entry.name){
     setStatus('원료명이 비어있습니다. 확인해주세요.', true);
@@ -1126,7 +1133,7 @@ function renderList(){
         <div class="item-meta">
           LOT <b>${escapeHtml(it.lot||'-')}</b> · 제조사 <b>${escapeHtml(it.maker||'-')}</b><br>
           제조 <b>${escapeHtml(it.mfg||'-')}</b> · 유효 <b>${escapeHtml(it.exp||'-')}</b><br>
-          입고량 <b>${escapeHtml(it.qty||'-')}</b> · 입고일 <b>${escapeHtml(it.recv)}</b>
+          입고량 <b>${escapeHtml(it.qty||'-')}</b> · 입고일 <b>${escapeHtml(it.recv)}</b>${it.submitter ? ' · 등록 <b>'+escapeHtml(it.submitter)+'</b>' : ''}
         </div>
       </div>
       <button class="del-btn" onclick="removeItem(${idx})">✕</button>
@@ -1152,14 +1159,15 @@ function rowsFromItems(list){
     '유효기한': it.exp,
     '제조사': it.maker,
     '입고수량': it.qty,
-    '비고': it.note
+    '비고': it.note,
+    '등록자': it.submitter || ''
   }));
 }
 
 function buildWorkbook(rows){
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
-    {wch:11},{wch:12},{wch:22},{wch:13},{wch:16},{wch:12},{wch:12},{wch:16},{wch:10},{wch:20}
+    {wch:11},{wch:12},{wch:22},{wch:13},{wch:16},{wch:12},{wch:12},{wch:16},{wch:10},{wch:20},{wch:10}
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '입고목록');
