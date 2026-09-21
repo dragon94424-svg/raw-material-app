@@ -195,6 +195,22 @@
     display:inline-block; font-family:var(--mono); font-size:10.5px; color:var(--muted);
     background:var(--panel); border:1px solid var(--border); border-radius:20px; padding:2px 8px; margin:4px 4px 0 0;
   }
+  /* v4.13: 재고조사 목록 검색창 + 통 개별삭제 버튼 */
+  .st-search-box{
+    margin:10px 0 4px; position:relative;
+  }
+  .st-search-box input{
+    width:100%; box-sizing:border-box; padding:9px 12px; border-radius:8px;
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    font-family:var(--disp); font-size:13px;
+  }
+  .st-chip-del{
+    border:none; background:transparent; color:var(--muted); cursor:pointer;
+    font-family:var(--mono); font-size:12px; font-weight:700; padding:0 0 0 5px; line-height:1;
+    vertical-align:middle;
+  }
+  .st-chip-del:hover{ color:var(--red); }
+  .st-chip-del:disabled{ opacity:0.4; cursor:default; }
 </style>
 </head>
 <body>
@@ -202,7 +218,7 @@
 <header>
   <div class="title-row">
     <h1>원료 입고 인식기</h1>
-    <span class="ver-badge" onclick="toggleChangelog()">v4.12 ▾</span>
+    <span class="ver-badge" onclick="toggleChangelog()">v4.13 ▾</span>
   </div>
   <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
   <div class="mode-toggle" id="modeToggle">
@@ -221,6 +237,10 @@
     </div>
   </div>
   <div id="changelog">
+    v4.13 (2026-09-21)<br>
+    · [개선] 재고조사 목록이 수십~수백 건으로 쌓일 때를 대비해 코드/품목명으로 검색·필터링하는 입력창 추가 — "이미 세었나?" 확인이 스크롤 없이 바로 됨<br>
+    · [개선] 통 단위로 개별 삭제(취소) 가능 — 각 통 칩(예: "1/3통 · 20kg") 옆에 × 버튼 추가, 탭하면 확인 후 그 통 하나만 서버(재고조사_실사기록)에서 삭제됨. 전체 목록을 비우는 기능이 아니라 잘못 스캔/입력한 통 하나만 되돌리는 용도 — 실수 수정 후에도 "이미 세었나?" 확인 목적의 전체 이력은 그대로 유지됨<br>
+    · 백엔드에 stocktake_delete 액션 추가 필요 (Apps Script v1.4)<br>
     v4.12 (2026-09-21)<br>
     · [핵심 수정] 재고조사 모드에서 "혹시 이거 아닌가요?" 후보(코드 근접/접미사/CAS/이름 추정)를 탭해서 적용해도, 아래 "장부재고" 비교 패널이 갱신되지 않아 실제로는 코드가 잡혔는데도 "마스터DB에 없습니다 — 신규 품목으로 등록해주세요"라는 오래된 경고가 계속 떠있던 문제 수정 (예: RE-15 → RE-15-T 제안을 탭해서 적용해도 화면이 그대로였던 문제) — 이제 후보를 적용하는 즉시 장부재고를 다시 조회해서 정상적으로 표시됨<br>
     v4.11 (2026-09-21)<br>
@@ -489,6 +509,9 @@
     <h2>재고조사 목록</h2>
     <span class="count-pill" id="stCountPill">0건</span>
   </div>
+  <div class="st-search-box" id="stSearchBox" style="display:none;">
+    <input type="text" id="stSearchInput" placeholder="코드 또는 품목명으로 검색" oninput="filterStocktakeList(this.value)">
+  </div>
   <div id="stocktakeListArea" style="display:none;">
     <div class="empty-hint">아직 등록된 항목이 없습니다</div>
   </div>
@@ -548,6 +571,7 @@ function setMode(m){
   document.getElementById('inboundListHead').style.display = isStocktake ? 'none' : 'flex';
   document.getElementById('listArea').style.display = isStocktake ? 'none' : 'block';
   document.getElementById('stocktakeListHead').style.display = isStocktake ? 'flex' : 'none';
+  document.getElementById('stSearchBox').style.display = isStocktake ? 'block' : 'none';
   document.getElementById('stocktakeListArea').style.display = isStocktake ? 'block' : 'none';
   document.getElementById('inboundFooter').style.display = isStocktake ? 'none' : 'block';
   document.getElementById('stocktakeFooter').style.display = isStocktake ? 'block' : 'none';
@@ -1222,12 +1246,19 @@ function stDiffBadge(item){
   return diff < 0 ? {cls:'short', label:`부족 ${Math.abs(diff)}kg`} : {cls:'over', label:`초과 ${diff}kg`};
 }
 
+// v4.13: 수십/수백 건이 쌓이는 실사 특성상, 매번 서버에서 다시 그룹핑/조회하지 않고도
+// 검색어 입력이나 개별 삭제 직후 화면을 즉시 다시 그릴 수 있도록 그룹 결과를 캐싱해둠.
+// (검색은 이미 불러온 데이터 안에서만 필터링 — 서버 재조회 없음)
+let stocktakeGroupsCache = [];
+let stocktakeSearchText = '';
+
 async function refreshStocktakeList(){
   const area = document.getElementById('stocktakeListArea');
   const pill = document.getElementById('stCountPill');
   if(!currentRoundId){
     area.innerHTML = '<div class="empty-hint">진행중인 회차가 없습니다</div>';
     pill.textContent = '0건';
+    stocktakeGroupsCache = [];
     return;
   }
   const res = await callStocktakeAPI('stocktake_list', {roundId: currentRoundId, corp: currentCorp});
@@ -1239,6 +1270,7 @@ async function refreshStocktakeList(){
   pill.textContent = rows.length + '건';
   if(rows.length === 0){
     area.innerHTML = '<div class="empty-hint">아직 등록된 항목이 없습니다</div>';
+    stocktakeGroupsCache = [];
     return;
   }
   // 품목코드+LOT 기준으로 그룹핑 (통 단위 상세는 칩으로 아래에 표시)
@@ -1255,17 +1287,68 @@ async function refreshStocktakeList(){
     const lk = await callStocktakeAPI('stocktake_lookup', {roundId: currentRoundId, corp: currentCorp, code: g.code, lot: g.lot});
     g.bookQty = lk.ok ? lk.bookQty : undefined;
   }));
+  stocktakeGroupsCache = groupList;
+  renderStocktakeGroups();
+}
+
+function filterStocktakeList(text){
+  stocktakeSearchText = (text || '').trim();
+  renderStocktakeGroups();
+}
+
+// stocktakeGroupsCache를 (검색어가 있으면 필터링해서) 다시 그림 — 서버 재조회 없음
+function renderStocktakeGroups(){
+  const area = document.getElementById('stocktakeListArea');
+  const q = stocktakeSearchText.toLowerCase();
+  const groupList = !q ? stocktakeGroupsCache : stocktakeGroupsCache.filter(g =>
+    (g.code||'').toLowerCase().includes(q) || (g.name||'').toLowerCase().includes(q)
+  );
+  if(groupList.length === 0){
+    area.innerHTML = stocktakeGroupsCache.length === 0
+      ? '<div class="empty-hint">아직 등록된 항목이 없습니다</div>'
+      : `<div class="empty-hint">"${escapeHtml(stocktakeSearchText)}" 검색 결과가 없습니다</div>`;
+    return;
+  }
   area.innerHTML = groupList.map(g => {
     const sum = g.containers.reduce((s,c) => s + (parseFloat(c.qty)||0), 0);
     const bookQty = g.bookQty;
     const badge = g.isNew ? {cls:'unknown', label:'신규품목'} : stDiffBadge({bookQty, actualSum: sum});
-    const chips = g.containers.map(c => `<span class="st-chip">${escapeHtml(c.pkg||'-')}통 · ${c.qty}kg</span>`).join('');
+    const chips = g.containers.map(c => `<span class="st-chip">${escapeHtml(c.pkg||'-')}통 · ${c.qty}kg<button type="button" class="st-chip-del" title="이 통 삭제" onclick="deleteStocktakeItem('${c.id}')">×</button></span>`).join('');
     return `<div class="st-item-card">
       <div style="font-weight:700;">${escapeHtml(g.name)}<span class="st-badge ${badge.cls}">${badge.label}</span></div>
       <div style="font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:2px;">${escapeHtml(g.code||'코드 미정')}${g.lot ? ' · LOT '+escapeHtml(g.lot) : ''} · 통수 ${g.containers.length} · 합계 ${sum}kg${bookQty!==null && bookQty!==undefined ? ' · 장부 '+bookQty+'kg' : ''}</div>
       <div style="margin-top:6px;">${chips}</div>
     </div>`;
   }).join('');
+}
+
+// v4.13: 실수로 잘못 스캔/입력한 통 하나만 취소 — 전체 목록 비우기와는 별개로,
+// 개별 통 단위 삭제만 서버(재고조사_실사기록 시트)에서 실제로 행을 지움.
+let stocktakeDeleteInProgress = {};  // id별 중복 탭 가드
+async function deleteStocktakeItem(id){
+  if(stocktakeDeleteInProgress[id]) return;
+  if(!confirm('이 통 등록을 삭제할까요? 되돌릴 수 없습니다.')) return;
+  stocktakeDeleteInProgress[id] = true;
+  document.querySelectorAll(`.st-chip-del[onclick*="${id}"]`).forEach(btn => btn.disabled = true);
+  setStatus('삭제 중...');
+  try{
+    const res = await callStocktakeAPI('stocktake_delete', {roundId: currentRoundId, id: id});
+    if(res.ok){
+      setStatus('✓ 삭제했습니다.');
+      // 서버 재조회 없이 캐시에서 바로 제거 → 검색/필터 상태 유지한 채 즉시 반영
+      stocktakeGroupsCache.forEach(g => { g.containers = g.containers.filter(c => c.id !== id); });
+      stocktakeGroupsCache = stocktakeGroupsCache.filter(g => g.containers.length > 0);
+      renderStocktakeGroups();
+      const pill = document.getElementById('stCountPill');
+      const cur = parseInt(pill.textContent, 10) || 0;
+      pill.textContent = Math.max(0, cur - 1) + '건';
+      if(document.getElementById('f_code').value.trim()) updateStocktakeCompare();
+    }else{
+      setStatus('삭제 실패: ' + (res.error || '알 수 없는 오류'), true);
+    }
+  }finally{
+    delete stocktakeDeleteInProgress[id];
+  }
 }
 
 async function submitStocktake(){
