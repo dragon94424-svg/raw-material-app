@@ -202,7 +202,7 @@
 <header>
   <div class="title-row">
     <h1>원료 입고 인식기</h1>
-    <span class="ver-badge" onclick="toggleChangelog()">v4.11 ▾</span>
+    <span class="ver-badge" onclick="toggleChangelog()">v4.12 ▾</span>
   </div>
   <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
   <div class="mode-toggle" id="modeToggle">
@@ -221,6 +221,8 @@
     </div>
   </div>
   <div id="changelog">
+    v4.12 (2026-09-21)<br>
+    · [핵심 수정] 재고조사 모드에서 "혹시 이거 아닌가요?" 후보(코드 근접/접미사/CAS/이름 추정)를 탭해서 적용해도, 아래 "장부재고" 비교 패널이 갱신되지 않아 실제로는 코드가 잡혔는데도 "마스터DB에 없습니다 — 신규 품목으로 등록해주세요"라는 오래된 경고가 계속 떠있던 문제 수정 (예: RE-15 → RE-15-T 제안을 탭해서 적용해도 화면이 그대로였던 문제) — 이제 후보를 적용하는 즉시 장부재고를 다시 조회해서 정상적으로 표시됨<br>
     v4.11 (2026-09-21)<br>
     · [핵심 수정] 휴대폰에서 "엑셀로 내보내기"/"실사 등록" 버튼을 빠르게 두 번 탭하면 저장이 끝나기 전에 같은 항목이 한 번 더 전송되어 구글시트에 완전히 동일한 행이 2개씩 들어가던 문제 수정 — 저장 중에는 버튼이 비활성화되고 중복 요청 자체가 차단됨. 이미 중복으로 들어간 기존 행은 자동으로 정리되지 않으니 시트에서 직접 지워야 함<br>
     v4.10 (2026-09-19)<br>
@@ -1724,6 +1726,10 @@ function applyCandidate(entry){
   hint.style.color = 'var(--teal)';
   hint.textContent = '✓ 적용됨: ' + entry.name + (entry.code ? ' ('+entry.code+')' : '');
   document.getElementById('matchCandidates').innerHTML = '';
+  // v4.12: "혹시 이거 아닌가요?"(code-near/code-prefix/cas/name 후보)를 탭해서 f_code가 새로
+  // 채워져도, 재고조사 모드의 장부재고 비교 패널은 그전 상태(코드 없음 → "마스터DB에 없습니다")로
+  // 멈춰있던 문제 수정 — 후보를 적용한 직후 항상 다시 조회해서 새 코드 기준으로 갱신함.
+  if(currentMode === 'stocktake') updateStocktakeCompare();
 }
 
 function applyMasterMatch(){
