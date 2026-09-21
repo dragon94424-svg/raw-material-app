@@ -202,7 +202,7 @@
 <header>
   <div class="title-row">
     <h1>원료 입고 인식기</h1>
-    <span class="ver-badge" onclick="toggleChangelog()">v4.10 ▾</span>
+    <span class="ver-badge" onclick="toggleChangelog()">v4.11 ▾</span>
   </div>
   <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
   <div class="mode-toggle" id="modeToggle">
@@ -221,6 +221,8 @@
     </div>
   </div>
   <div id="changelog">
+    v4.11 (2026-09-21)<br>
+    · [핵심 수정] 휴대폰에서 "엑셀로 내보내기"/"실사 등록" 버튼을 빠르게 두 번 탭하면 저장이 끝나기 전에 같은 항목이 한 번 더 전송되어 구글시트에 완전히 동일한 행이 2개씩 들어가던 문제 수정 — 저장 중에는 버튼이 비활성화되고 중복 요청 자체가 차단됨. 이미 중복으로 들어간 기존 행은 자동으로 정리되지 않으니 시트에서 직접 지워야 함<br>
     v4.10 (2026-09-19)<br>
     · [수정] CB-YYMMDD-NN 같은 자사 내부코드 라벨에서, 코드 자체의 날짜/순번 접미사가 제품명·한글표기 줄에 반복 인쇄된 것뿐인데 이걸 LOT 번호로 잘못 채우던 문제 수정(예: "CB-220614-02" 라벨에서 LOT번호에 "220614-02"가 자동으로 들어가던 것) — 라벨에 "LOT"/"Batch No."로 별도 표시된 값이 아니면 LOT번호는 빈 칸으로 둠. 실제 LOT/Batch가 코드와 별개로 찍혀 있는 라벨은 영향 없음<br>
     v4.9 (2026-09-19)<br>
@@ -1121,7 +1123,10 @@ function updateStocktakeDiff(){
   }
 }
 
+let stRegisterInProgress = false;   // v4.11: 입고 모드의 중복 저장과 같은 원인(빠른 두 번 탭)으로
+                                     // 재고조사 등록도 중복될 수 있어 동일하게 가드 추가.
 async function registerStocktakeCount(){
+  if(stRegisterInProgress) return;
   const code = document.getElementById('f_code').value.trim();
   const name = document.getElementById('f_name').value.trim();
   const lot = document.getElementById('f_lot').value.trim();
@@ -1133,21 +1138,29 @@ async function registerStocktakeCount(){
   if(!currentRoundId){ setStatus('진행중인 회차가 없습니다.', true); return; }
   if(!qty){ setStatus('실사수량을 입력해주세요.', true); return; }
 
-  setStatus('등록 중...');
-  const res = await callStocktakeAPI('stocktake_register', {
-    roundId: currentRoundId, corp: currentCorp,
-    code: code, name: name, lot: lot,
-    submitter: localStorage.getItem('rawmat_user_name') || '',
-    items: [{pkg: pkg, qty: qty}]
-  });
-  if(res.ok){
-    setStatus(`✓ 등록 완료 (${pkg||'-'}통 · ${qty}kg)`);
-    await updateStocktakeCompare();
-    document.getElementById('st_qty').value = '';
-    refreshStocktakeList();
-    advanceQueueOrReset();
-  }else{
-    setStatus('등록 실패: ' + (res.error || '알 수 없는 오류'), true);
+  stRegisterInProgress = true;
+  const btn = document.getElementById('stRegisterBtn');
+  if(btn) btn.disabled = true;
+  try{
+    setStatus('등록 중...');
+    const res = await callStocktakeAPI('stocktake_register', {
+      roundId: currentRoundId, corp: currentCorp,
+      code: code, name: name, lot: lot,
+      submitter: localStorage.getItem('rawmat_user_name') || '',
+      items: [{pkg: pkg, qty: qty}]
+    });
+    if(res.ok){
+      setStatus(`✓ 등록 완료 (${pkg||'-'}통 · ${qty}kg)`);
+      await updateStocktakeCompare();
+      document.getElementById('st_qty').value = '';
+      refreshStocktakeList();
+      advanceQueueOrReset();
+    }else{
+      setStatus('등록 실패: ' + (res.error || '알 수 없는 오류'), true);
+    }
+  }finally{
+    stRegisterInProgress = false;
+    if(btn) btn.disabled = false;
   }
 }
 
@@ -1161,6 +1174,7 @@ function focusStocktakeNewItem(){
 }
 
 async function registerStocktakeNewItem(){
+  if(stRegisterInProgress) return;
   const name = document.getElementById('f_name').value.trim();
   const cas = document.getElementById('f_cas').value.trim();
   const maker = document.getElementById('f_maker').value.trim();
@@ -1172,23 +1186,30 @@ async function registerStocktakeNewItem(){
   if(!currentRoundId){ setStatus('진행중인 회차가 없습니다.', true); return; }
   if(!qty){ setStatus('실사수량을 입력해주세요.', true); return; }
 
-  setStatus('신규 품목 등록 중...');
-  const res = await callStocktakeAPI('stocktake_newitem', {
-    roundId: currentRoundId, corp: currentCorp,
-    name: name, cas: cas, maker: maker, lot: lot, pkg: pkg, qty: qty,
-    scannedCode: ocrLabelCode,   // v4.8: 마스터DB엔 없지만 라벨에서 읽은 원본 코드 — 관리자가 정식 코드 배정할 때 참고용
-    submitter: localStorage.getItem('rawmat_user_name') || ''
-  });
-  if(res.ok){
-    setStatus(`✓ 신규 품목으로 등록 완료 (관리자 확인 후 정식 코드가 부여됩니다)`);
-    // 버튼을 원래대로 되돌림
-    const btn = document.getElementById('stRegisterBtn');
-    btn.textContent = '실사 등록';
-    btn.setAttribute('onclick', 'registerStocktakeCount()');
-    refreshStocktakeList();
-    advanceQueueOrReset();
-  }else{
-    setStatus('등록 실패: ' + (res.error || '알 수 없는 오류'), true);
+  stRegisterInProgress = true;
+  const btn = document.getElementById('stRegisterBtn');
+  if(btn) btn.disabled = true;
+  try{
+    setStatus('신규 품목 등록 중...');
+    const res = await callStocktakeAPI('stocktake_newitem', {
+      roundId: currentRoundId, corp: currentCorp,
+      name: name, cas: cas, maker: maker, lot: lot, pkg: pkg, qty: qty,
+      scannedCode: ocrLabelCode,   // v4.8: 마스터DB엔 없지만 라벨에서 읽은 원본 코드 — 관리자가 정식 코드 배정할 때 참고용
+      submitter: localStorage.getItem('rawmat_user_name') || ''
+    });
+    if(res.ok){
+      setStatus(`✓ 신규 품목으로 등록 완료 (관리자 확인 후 정식 코드가 부여됩니다)`);
+      // 버튼을 원래대로 되돌림
+      btn.textContent = '실사 등록';
+      btn.setAttribute('onclick', 'registerStocktakeCount()');
+      refreshStocktakeList();
+      advanceQueueOrReset();
+    }else{
+      setStatus('등록 실패: ' + (res.error || '알 수 없는 오류'), true);
+    }
+  }finally{
+    stRegisterInProgress = false;
+    if(btn) btn.disabled = false;
   }
 }
 
@@ -2133,8 +2154,16 @@ async function retryShareLastExport(){
   }
 }
 
+let exportInProgress = false;   // v4.11: 모바일에서 버튼을 빠르게 두 번 탭하면 저장이 완료되기 전에
+                                 // exportExcel()이 두 번 실행되어 같은 항목이 구글시트/엑셀에 중복
+                                 // 저장되는 문제가 있었음 — 진행 중에는 재실행을 막는 가드.
 async function exportExcel(){
   if(items.length === 0) return;
+  if(exportInProgress) return;
+  exportInProgress = true;
+  const exportBtn = document.getElementById('exportBtn');
+  if(exportBtn) exportBtn.disabled = true;
+  try{
   const newRows = rowsFromItems(items);
 
   // ── 0순위: 구글시트 주소가 설정되어 있으면 서버로 직접 저장 (공유/다운로드 불필요) ──
@@ -2220,6 +2249,11 @@ async function exportExcel(){
       renderList();
     }
   }, 300);
+  }finally{
+    exportInProgress = false;
+    // renderList()가 이미 items.length===0이면 버튼을 비활성화해두므로, 항목이 남아있을 때만 다시 켬
+    if(exportBtn) exportBtn.disabled = items.length === 0;
+  }
 }
 
 // 연결된 폴더의 입고배치_*.xlsx 파일들을 전부 마스터에 병합하고 배치 파일은 삭제
