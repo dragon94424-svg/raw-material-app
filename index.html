@@ -218,7 +218,7 @@
 <header>
   <div class="title-row">
     <h1>원료 입고 인식기</h1>
-    <span class="ver-badge" onclick="toggleChangelog()">v4.13 ▾</span>
+    <span class="ver-badge" onclick="toggleChangelog()">v4.14 ▾</span>
   </div>
   <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
   <div class="mode-toggle" id="modeToggle">
@@ -237,6 +237,9 @@
     </div>
   </div>
   <div id="changelog">
+    v4.14 (2026-09-21)<br>
+    · [개선] 재고조사 중 여러 사람이 같은 품목의 서로 다른 통을 거의 동시에 스캔하면, 포장번호 자동제안(기존 등록통수+1)이 서로의 등록을 아직 못 본 채 같은 번호를 제안할 수 있던 문제 보완 — "실사 등록" 직전에 서버 최신 상태를 한 번 더 확인해서, 이미 쓰인 포장번호면 "⚠ 이미 등록된 OO번 통이 있습니다" 경고 후 계속할지 확인함 (장부재고 비교·합계 계산 자체는 포장번호와 무관하게 항상 정확했지만, 시트에 같은 번호가 중복으로 남는 걸 미리 막아줌)<br>
+    · 백엔드 stocktake_lookup 응답에 existingPkgs(이미 쓰인 포장번호 목록) 필드 추가 필요 (Apps Script v1.5) — 이전 백엔드(v1.4 이하)에서도 에러 없이 동작하지만 중복 경고 기능만 비활성화됨<br>
     v4.13 (2026-09-21)<br>
     · [개선] 재고조사 목록이 수십~수백 건으로 쌓일 때를 대비해 코드/품목명으로 검색·필터링하는 입력창 추가 — "이미 세었나?" 확인이 스크롤 없이 바로 됨<br>
     · [개선] 통 단위로 개별 삭제(취소) 가능 — 각 통 칩(예: "1/3통 · 20kg") 옆에 × 버튼 추가, 탭하면 확인 후 그 통 하나만 서버(재고조사_실사기록)에서 삭제됨. 전체 목록을 비우는 기능이 아니라 잘못 스캔/입력한 통 하나만 되돌리는 용도 — 실수 수정 후에도 "이미 세었나?" 확인 목적의 전체 이력은 그대로 유지됨<br>
@@ -1168,6 +1171,21 @@ async function registerStocktakeCount(){
   const btn = document.getElementById('stRegisterBtn');
   if(btn) btn.disabled = true;
   try{
+    // v4.14: 여러 사람이 같은 품목의 서로 다른 통을 거의 동시에 스캔하면, 포장번호 자동제안
+    // (기존통수+1)이 서로의 등록을 아직 못 본 채로 같은 번호를 제안할 수 있음(예: B/C가 둘 다
+    // "4번" 제안받음) — 등록 직전에 서버 최신 상태로 한 번 더 확인해서, 이미 쓰인 포장번호면
+    // 경고하고 계속할지 물어봄. (합계/장부비교 계산 자체는 포장번호와 무관하게 항상 정확하지만,
+    // 시트에 같은 번호가 중복으로 남으면 나중에 보는 사람이 헷갈릴 수 있어 미리 막아줌.)
+    if(pkg){
+      setStatus('중복 확인 중...');
+      const dupCheck = await callStocktakeAPI('stocktake_lookup', {roundId: currentRoundId, corp: currentCorp, code: code, lot: lot});
+      if(dupCheck.ok && Array.isArray(dupCheck.existingPkgs) && dupCheck.existingPkgs.includes(pkg)){
+        if(!confirm(`⚠ 이미 등록된 "${pkg}번" 통이 있습니다 (다른 분이 방금 등록했을 수 있어요).\n그래도 이 번호로 등록할까요?`)){
+          setStatus('등록을 취소했습니다. 포장번호를 확인해주세요.');
+          return;
+        }
+      }
+    }
     setStatus('등록 중...');
     const res = await callStocktakeAPI('stocktake_register', {
       roundId: currentRoundId, corp: currentCorp,
