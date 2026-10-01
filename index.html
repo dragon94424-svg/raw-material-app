@@ -227,7 +227,7 @@
 <header>
   <div class="title-row">
     <h1>원료 입고 인식기</h1>
-    <span class="ver-badge" onclick="toggleChangelog()">v4.16 ▾</span>
+    <span class="ver-badge" onclick="toggleChangelog()">v4.17 ▾</span>
   </div>
   <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
   <div class="mode-toggle" id="modeToggle">
@@ -246,6 +246,10 @@
     </div>
   </div>
   <div id="changelog">
+    v4.17 (2026-10-01)<br>
+    · [핵심 수정] "재고조사 목록" 검색창이 반응 없는 것처럼 보이던 문제 수정 — 실제 원인은 검색창이 아니라 목록 로딩: 등록된 통 수가 많아질수록(예: 200건↑) 목록을 열 때마다 품목 그룹 개수만큼 "장부수량 조회"를 각각 따로 호출했는데, 이 조회 하나하나가 장부재고·실사기록 시트 전체를 다시 훑는 구조라 그룹이 많으면 응답이 매우 느려지거나 끝까지 안 끝나는 경우가 생김 — 이 상태에서는 상단 건수(예: "205건")만 뜨고 카드 목록은 "아직 등록된 항목이 없습니다"에서 멈춰 있어서, 검색창에 뭘 입력해도 빈 목록만 다시 그려지니 마치 검색이 고장난 것처럼 보였음. 이제 장부수량을 그룹 수와 무관하게 딱 1번의 요청으로 한꺼번에 받아오도록 수정 — 목록이 훨씬 빠르고 안정적으로 뜸<br>
+    · 백엔드에 stocktake_booklist 액션 추가 필요 (Apps Script v1.6) — 아직 안 올렸다면 예전 방식(그룹별 개별 조회)으로 자동 대체되어 느리지만 계속 동작함(에러 없음), 올리면 바로 빨라짐<br>
+    · [사소한 수정] v4.16에서 검색창 옆에 정렬 버튼을 추가하며 가로 배치(flex)로 바꿨는데, 재고조사 모드 전환 시 버튼 표시 코드가 예전 값("block")으로 덮어써서 간격(gap)이 적용되지 않던 것 수정<br>
     v4.16 (2026-09-30)<br>
     · [개선] 재고조사 목록에서 같은 원료가 LOT이 달라 여러 카드로 나뉘어 있을 때, 스캔한 순서대로 흩어져 나와서 "이미 세었나?" 비교가 힘들다는 피드백 → 검색창 옆에 "이름순 정렬" 버튼 추가. 누르면 원료명 기준으로 목록이 다시 정렬되어 같은 품목끼리 가깝게 모여 보임(코드가 달라 병합은 안 되지만 바로 옆에 줄지어 보임), 다시 누르면 원래 등록순으로 복귀. 서버 재조회 없이 이미 불러온 목록만 재정렬 — 검색 필터와 함께 써도 됨. 백엔드 변경 없음, index.html만 올리면 적용됨<br>
     v4.15 (2026-09-21)<br>
@@ -598,7 +602,7 @@ function setMode(m){
   document.getElementById('inboundListHead').style.display = isStocktake ? 'none' : 'flex';
   document.getElementById('listArea').style.display = isStocktake ? 'none' : 'block';
   document.getElementById('stocktakeListHead').style.display = isStocktake ? 'flex' : 'none';
-  document.getElementById('stSearchBox').style.display = isStocktake ? 'block' : 'none';
+  document.getElementById('stSearchBox').style.display = isStocktake ? 'flex' : 'none';
   document.getElementById('stocktakeListArea').style.display = isStocktake ? 'block' : 'none';
   document.getElementById('inboundFooter').style.display = isStocktake ? 'none' : 'block';
   document.getElementById('stocktakeFooter').style.display = isStocktake ? 'block' : 'none';
@@ -1373,12 +1377,31 @@ async function refreshStocktakeList(){
     groups[key].containers.push(it);
   });
   const groupList = Object.values(groups);
-  // stocktake_list는 통 단위 원본 행만 주고 장부재고는 포함하지 않으므로,
-  // 신규품목이 아닌 그룹만 골라 stocktake_lookup으로 장부재고를 따로 조회 (병렬)
-  await Promise.all(groupList.filter(g => !g.isNew && g.code).map(async g => {
-    const lk = await callStocktakeAPI('stocktake_lookup', {roundId: currentRoundId, corp: currentCorp, code: g.code, lot: g.lot});
-    g.bookQty = lk.ok ? lk.bookQty : undefined;
-  }));
+  // v4.17: stocktake_list는 통 단위 원본 행만 주고 장부재고는 포함하지 않아서,
+  // 예전엔(v4.13~v4.16) 신규품목이 아닌 그룹마다 stocktake_lookup을 한 번씩 따로 호출했음.
+  // 그런데 stocktake_lookup은 호출마다 장부재고+실사기록 시트 전체를 다시 훑는 구조라,
+  // 그룹이 많아지면(실제 실사가 쌓일수록) 수십~수백 번의 전체 스캔이 동시에 발생해 응답이
+  // 느려지다 결국 안 끝나는 문제가 있었음 — 건수는 맞게 뜨는데 카드 목록은 "아직 등록된
+  // 항목이 없습니다"에서 멈춰 있고, 그 상태에서는 캐시가 비어있어 검색창에 뭘 입력해도
+  // 반응이 없는 것처럼 보였음(검색 자체 버그 아님). 이제 장부수량은 stocktake_booklist
+  // 한 번 호출로 해당 회차 전체를 한꺼번에 받아온다(그룹 수와 무관하게 요청 1번).
+  if(groupList.length > 0){
+    area.innerHTML = '<div class="empty-hint">장부재고 불러오는 중...</div>';
+  }
+  const blRes = await callStocktakeAPI('stocktake_booklist', {roundId: currentRoundId, corp: currentCorp});
+  if(blRes && blRes.ok && blRes.books){
+    groupList.forEach(g => {
+      if(!g.isNew && g.code){
+        g.bookQty = Object.prototype.hasOwnProperty.call(blRes.books, g.code) ? blRes.books[g.code] : undefined;
+      }
+    });
+  } else {
+    // 구형 백엔드(v1.5 이하, stocktake_booklist 없음) 폴백 — 예전 방식(그룹별 개별 조회)으로 계속 동작
+    await Promise.all(groupList.filter(g => !g.isNew && g.code).map(async g => {
+      const lk = await callStocktakeAPI('stocktake_lookup', {roundId: currentRoundId, corp: currentCorp, code: g.code, lot: g.lot});
+      g.bookQty = lk.ok ? lk.bookQty : undefined;
+    }));
+  }
   stocktakeGroupsCache = groupList;
   renderStocktakeGroups();
 }
