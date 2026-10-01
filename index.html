@@ -227,7 +227,7 @@
 <header>
   <div class="title-row">
     <h1>원료 입고 인식기</h1>
-    <span class="ver-badge" onclick="toggleChangelog()">v4.17 ▾</span>
+    <span class="ver-badge" onclick="toggleChangelog()">v4.18 ▾</span>
   </div>
   <div class="sub">촬영/사진 선택 → 자동 인식 → 검수 → 엑셀 내보내기</div>
   <div class="mode-toggle" id="modeToggle">
@@ -246,6 +246,9 @@
     </div>
   </div>
   <div id="changelog">
+    v4.18 (2026-10-01)<br>
+    · [안전장치] "장부재고 불러오는 중..."에서 끝없이 멈춰있던 문제 보완 — 브라우저 fetch는 원래 타임아웃이 없어서, 백엔드가 아직 v1.6(stocktake_booklist)로 안 올라가 있으면 v4.17이 예전 방식(그룹별 개별 조회)으로 폴백하는데, 이때 응답이 느리면 화면이 영원히 "불러오는 중"에 머물 수 있었음. 이제 각 서버 요청에 20초 타임아웃을 둬서, 응답이 없으면 그 요청만 실패 처리하고 넘어가도록 함(전체가 무한정 멈추지 않음)<br>
+    · ⚠ 다만 근본적인 해결은 아님 — 그룹이 많을 땐 여전히 느릴 수 있음. v1.6 백엔드를 올려야 "장부수량 조회"가 그룹 수와 무관하게 한 번의 요청으로 끝나서 실제로 빨라짐. Apps Script 편집기에서 전체 코드를 v1.6 파일로 교체 후 "배포 관리 → 기존 배포 수정 → 새 버전"으로 재배포 필요<br>
     v4.17 (2026-10-01)<br>
     · [핵심 수정] "재고조사 목록" 검색창이 반응 없는 것처럼 보이던 문제 수정 — 실제 원인은 검색창이 아니라 목록 로딩: 등록된 통 수가 많아질수록(예: 200건↑) 목록을 열 때마다 품목 그룹 개수만큼 "장부수량 조회"를 각각 따로 호출했는데, 이 조회 하나하나가 장부재고·실사기록 시트 전체를 다시 훑는 구조라 그룹이 많으면 응답이 매우 느려지거나 끝까지 안 끝나는 경우가 생김 — 이 상태에서는 상단 건수(예: "205건")만 뜨고 카드 목록은 "아직 등록된 항목이 없습니다"에서 멈춰 있어서, 검색창에 뭘 입력해도 빈 목록만 다시 그려지니 마치 검색이 고장난 것처럼 보였음. 이제 장부수량을 그룹 수와 무관하게 딱 1번의 요청으로 한꺼번에 받아오도록 수정 — 목록이 훨씬 빠르고 안정적으로 뜸<br>
     · 백엔드에 stocktake_booklist 액션 추가 필요 (Apps Script v1.6) — 아직 안 올렸다면 예전 방식(그룹별 개별 조회)으로 자동 대체되어 느리지만 계속 동작함(에러 없음), 올리면 바로 빨라짐<br>
@@ -1032,18 +1035,31 @@ async function saveItemsToGoogleSheet(items){
 // v4.4: 재고조사 모드 — Apps Script v1.2 stocktake_* 액션 연동
 // ══════════════════════════════════════════════════════════
 
-async function callStocktakeAPI(action, payload){
+async function callStocktakeAPI(action, payload, timeoutMs){
   const url = localStorage.getItem('rawmat_sheet_url') || '';
   if(!url) return {ok:false, error:'구글시트 주소가 설정되지 않았습니다. ⚙ 설정에서 먼저 등록해주세요.'};
+  // v4.18: 구형 백엔드(stocktake_booklist 미지원)에서는 그룹별 stocktake_lookup 폴백이
+  // 그룹 수만큼 반복되면서 네트워크가 느리거나 Apps Script가 잠깐 응답을 못 주는 경우
+  // fetch 자체가 끝없이 멈춰있을 수 있었음(브라우저 fetch는 기본 타임아웃이 없음) — "장부재고
+  // 불러오는 중..."에서 영원히 안 끝나는 것처럼 보이던 문제. 일정 시간(기본 20초) 안에 응답이
+  // 없으면 타임아웃 처리해서 최소한 에러로 끝나고, 호출한 쪽에서 이를 감지할 수 있게 함.
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs || 20000);
   try{
     const res = await fetch(url, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain;charset=utf-8'},
-      body: JSON.stringify(Object.assign({action: action}, payload))
+      body: JSON.stringify(Object.assign({action: action}, payload)),
+      signal: ac.signal
     });
     return await res.json();
   }catch(err){
+    if(err && err.name === 'AbortError'){
+      return {ok:false, error:'응답 시간 초과(20초) — 네트워크 상태를 확인하거나 잠시 후 다시 시도해주세요', timedOut:true};
+    }
     return {ok:false, error: err.message};
+  }finally{
+    clearTimeout(timer);
   }
 }
 
